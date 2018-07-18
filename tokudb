@@ -1,0 +1,49 @@
+tokuDB安装
+]# tar -zxvf mysql-5.5.38-tokudb-7.1.7-linux-x86_64.tar.gz -C /usr/local/
+]# cd /usr/local
+]# ln -sv mysql-5.5.38-tokudb-7.1.7-linux-x86_64 mysql
+]# useradd mysql
+]# chown -R mysql:mysql mysql-5.5.38-tokudb-7.1.7-linux-x86_64
+]# chown -R mysql:mysql mysql
+]# cd mysql
+]# mkdir -p /data/www/mysql 
+]# scripts/mysql_install_db  --user=mysql --datadir=/data/www/mysql
+]# cp support-files/my-large.cnf /etc/my.cnf 
+]# vi /etc/my.cnf
+   datadir=/data/www/mysql
+]# cp support-files/mysql.server /etc/rc.d/init.d/mysqld 
+]# /etc/rc.d/init.d/mysqld start 此时会报错
+]# cat /data/www/mysql/localhost.localdomain.err 查看里面的错误信息
+]# echo never > /sys/kernel/mm/transparent_hugepage/enabled
+]# /etc/rc.d/init.d/mysqld start 此时服务可以正常启动，而且默认engines是tokuDB
+
+tokudb-xtrabackup安装
+]# yum install cmake gcc gcc-c++ libaio libaio-devel automake autoconf bison libtool ncurses-devel libgcrypt-devel libev-devel libcurl-devel vim-common  -y
+]# mkdir /data/software && cd /data/software
+]# git clone https://github.com/BohuTANG/tokudb-xtrabackup
+]# cd tokudb-xtrabackup
+]# cmake . -DBUILD_CONFIG=xtrabackup_release  -DWITH_BOOST=extra/boost/boost_1_59_0.tar.gz  -DWITH_MAN_PAGES=OFF  -DCMAKE_INSTALL_PREFIX=/data/tokudb/backup
+]# make  -j4
+]# make install
+]# ll /data/tokudb/backup/bin/  编译完成后在bin目录有如下文件生成
+总用量 37060
+lrwxrwxrwx. 1 root root       10 2月  13 20:03 innobackupex -> xtrabackup
+-rwxr-xr-x. 1 root root  5378726 2月  13 19:32 xbcloud
+-rwxr-xr-x. 1 root root     3020 2月  13 19:29 xbcloud_osenv
+-rwxr-xr-x. 1 root root  5194081 2月  13 19:32 xbcrypt
+-rwxr-xr-x. 1 root root  5257186 2月  13 19:33 xbstream
+-rwxr-xr-x. 1 root root 22039344 2月  13 20:07 xtrabackup
+]# cd /data/tokudb/backup/bin/
+]# strip xtrabackup  因为包含了一些符号信息和调试信息，xtrabackup文件很大，通过strip进行剥离
+
+注意：编译tokudb-xtrabackup至少需要内存3G以上，swap空间3G以上，否则不能编译成功，swap操作如下
+]# dd if=/dev/zero of=/data/swap bs=1024M count=3
+]# mkswap /data/swap 
+]# free -m 查看当前的swap情况
+]# swapon /data/swap
+]# free -m 此时会在之前的swap基础上直接增加3G，查看内存和swap是否满足要求
+]# swapoff /data/swap  swap不需要时，先关闭，然后再删除
+]# rm -rf /data/swap 
+
+tokudb-xtrabackup的使用参照mariadb文档执行即可，完全备份已经测试可以，编译的tokudb-xtrabackup不支持增量备份
+
