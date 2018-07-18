@@ -1,0 +1,841 @@
+﻿49-1
+可以用heka或者filebeat来替代logstach
+ELK stack：
+	Lucene：(JAVA语言研发）
+		文档: Document
+			包含了一个或多个域的容器；
+				field:value
+			域：
+				有很多选项
+					索引选项、存储选项、域向量使用选项；
+				1)索引选项用于通过倒排索引来控制文本是否可被搜索：
+					Index:ANYLYZED：分析(切词)并单独作为索引项；
+					Index:Not_ANYLYZED：不分析(不切词)，把整个内容当一个索引项；
+					Index:ANYLYZED_NORMS：类似于Index:ANALYZED，但不存储token的Norms(加权基准)信息；
+					Index:Not_ANYLYZED_NORMS：类似于Index:Not_ANALYZED，但不存储值的Norms(加权基准)信息；
+					Index:NO: 不对此域的值进行索引；因此不能被搜索；
+				2)存储选项：是否需要存储域的真实值；
+					title:This is a Notebook.
+					store.YES：存储真实值
+					store.NO：不存储真实值
+				3)域向量选项用于在搜索期间该文档所有的唯一项都能完全从文档中检索时使用；
+			文档和域的加权操作
+				加权计算标准；
+			搜索：
+				查询Lucene索引时，它返回的是一个有序的scoreDoc对象；查询时，Lucene会为每个文档计算出其score；
+				API:
+					IndexSearcher：搜索索引入口；
+					Query及其子类：
+					QueryParser
+					TopDocs（自身是一个数组，存储前10个ScoreDoc）
+					ScoreDoc
+			Lucene的多样化查询：
+				IndexSearcher中的search方法；
+					TermQuery：对索引中的特定项进行搜索；Term是索引中的最小索引片段，每个Term包含了一个域名和一个文本值；
+						title：This is a Desk.
+						owner: Tom Blair
+						description: this is a desk, it's belong to Tom.
+
+						title: This is a table.
+						owner: Clinton
+						description: this is a desk, it's belong to Clinton.
+							This: (1) (2)
+							Desk: (1)
+							table: (2)
+					TermRangeQuery：在索引中的多个特定项中进行搜索，能搜索指定的多个域；
+					NumericRangeQuery：做数值范围搜索；
+					PrefixQuery：用于搜索以指定字符串开头的项；
+					BooleanQuery：用于实现组合查询；组合逻辑有: AND, OR, NOT；
+					PhraseQuery：（phrase表示措词，语法的意思）
+					WildcardQuery：
+					FuzzyQuery：模糊查询；Levenshtein（根据Levenshtein算法计算匹配度）
+49-2
+	ElasticSearch：
+              是一个基于Lucene实现的开源、分布式、Restful的全文本搜索引擎；
+              是一个分布式实时文档存储，其中每个文档的每个field均是被索引的数据，且可被搜索；
+              是一个带实时分析功能的分布式搜索引擎，能够扩展至数以百计的节点实时处理PB级的数据。
+                 基本组件：
+			索引(index)：文档容器，换句话说，索引是具有类似属性的文档的集合。类似于表。索引名必须使用小写字母；
+                                    （索引是很多文档的集合，一个文档相当于mysql表中的行，索引就相当于mysql中的表）
+			类型(type)：类型是索引内部的逻辑分区，其意义完全取决于用户需求。一个索引内部可定义一个或多个类型。
+                                    一般来说，类型就是拥有相同的域的文档的预定义。
+			文档(document)：文档是Lucene索引和搜索的原子单位，它包含了一个或多个域。是域的容器；基于JSON格式表示。
+				        每个域的组成部分：一个名字，一个或多个值；拥有多个值的域，通常称为多值域；
+			映射(mapping)：原始内容存储为文档之前需要事先进行的分析，例如切词、过滤掉某些词等；映射用于定义此分析机制该如何实现；
+                                       除此之外，ES还为映射提供了诸如将域中的内容排序等功能。
+                后续的ES指的就是ElasticSearch
+		ES的集群组件：
+			Cluster：ES的集群标识为集群名称；默认为"elasticsearch"。节点就是靠此名字来决定加入到哪个集群中。一个节点只能属于一个集群。
+			Node：运行了单个ES实例的主机即为节点。用于存储数据、参与集群索引及搜索操作。节点的标识靠节点名。
+			Shard：将索引切割成为物理存储组件；但每一个shard都是一个独立且完整的索引；
+                               创建索引时，ES默认将其分割为5个shard，可以简单理解为一个表被切分成5份。用户也可以按需自定义，创建完成之后不可修改。
+			       shard有两种类型：primary shard和replica。Replica用于数据冗余及查询时的负载均衡。
+                               每个主shard的副本数量可自定义，也就是每一份数据又可以自行做备份，且可动态修改。
+		ES Cluster工作过程：
+			启动时，通过多播(默认)或单播方式在9300/tcp查找同一集群中的其它节点，并与之建立通信。
+			集群中的所有节点会选举出一个主节点负责管理整个集群状态，以及在集群范围内决定各shards的分布方式。
+                        站在用户角度而言，每个节点均可接收并响应用户的各类请求（无中心节点）。
+			集群有状态：green, red, yellow
+		官方站点：https://www.elastic.co/
+		JDK：
+			Oracle JDK
+			OpenJDK   
+		ES的默认端口：
+			参与集群的事务：9300/tcp，transport.tcp.port
+			接收请求：9200/tcp，http.port
+		Restful API:
+			四类API:
+				(1) 检查集群、节点、索引等健康与否，以及获取其相应状态；
+				(2) 管理集群、节点、索引及元数据；
+				(3) 执行CRUD操作，即增删查改
+				(4) 执行高级操作，例如paging, filtering等；
+			ES访问接口：9200/tcp
+			curl -X <VERB> '<PROTOCOL>://HOST:PORT/<PATH>?<QUERY_STRING>' -d '<BODY>'
+				VERB: GET, PUT, DELETE等动作；
+				PROTOCOL: http, https
+				QUERY_STRING：查询参数，例如?pretty表示用易读的JSON格式输出；
+				BODY: 请求的主体；
+                         常用命令:
+                              curl -X GET  'http://192.168.139.192:9200/?pretty' 9200才是http端口
+                              curl -X GET  'http://192.168.139.192:9200/_cat'  有很多API接口，cat只是其中一个
+                              curl -X GET  'http://192.168.139.192:9200/_cat/master?v' 
+                              curl -X GET  'http://192.168.139.192:9200/_cat/nodes?help'
+                              curl -X GET  'http://192.168.139.192:9200/_cat/nodes?h=name,ip,port,uptime,heap.current'
+                        补充说明：
+                              URL的基本语法
+                              <sheme>://<user>:<passwd>@<host>:<port>/<path>;<params>?<query>#<frag>   
+                              params，参数案例：
+                              http://www.mageedu.com/bbs/hello;gender=f
+                              query，查询案例：
+                              http://www.magedu.com/bbs/item.php/?user=tom@title=abc
+                              frag表示片段，分段
+elasticsearch的具体安装步骤：
+                        node1：192.168.139.192
+                               yum install java-1.8.0-openjdk  java-1.8.0-openjdk-devel -y
+                               yum  localinstall elasticsearch-1.7.2.noarch.rpm  -y   有对应的rpm包
+                               vim /etc/elasticsearch/elasticsearch.yml
+                                   cluster.name: myes  最好修改集群名称
+                                   node.name: "node1"  本节点名称
+                               service elasticsearch start 
+                        node2：192.168.139.171
+                               yum install java-1.8.0-openjdk  java-1.8.0-openjdk-devel -y
+                               yum  localinstall elasticsearch-1.7.2.noarch.rpm    -y   有对应的rpm包
+                               vim /etc/elasticsearch/elasticsearch.yml
+                                   cluster.name: myes  最好修改集群名称
+                                   node.name: "node2"  本节点名称
+                               service elasticsearch start
+                               curl -X GET  'http://192.168.139.192:9200/?pretty'
+                               curl -X GET  'http://192.168.139.171:9200/?pretty'   验证两个节点上的集群是否正常
+                         最好是再安装一个node3,要清掉防火墙，否则测试集群状态会不正常
+49-3
+回顾：搜索引擎和ES
+	搜索引擎：
+		索引：倒排索引(表示由关键字找文档）
+		索引组件：Lucene--重要
+		搜索组件：ES--重要
+		数据获取组件：solr, Nutch, Grub, Apeture
+	ES：
+		索引(index)，类型(type)，文档(document)，映射(mapping)
+		集群(cluster)，节点(node)，shard(primary, replication)
+			集群事务接口，9300/tcp
+			每个索引的分片数量：5，可以简单理解为一个表被切分成5份
+			每个分片也应该会副本：1，可以理解为每一份数据又有一份备份
+		jvm：oracle jdk, openjdk
+		用户访问接口：9200/tcp
+		Restful API：
+                   curl -X <VERB> 'PROTOCOL://HOST:PORT/<PATH>?QUERY_STRING' -d '<BODY>'
+                                  _cat API:(_cat是其中一个API)
+ELK stack(2) 
+	Cluster APIs:
+		health: curl -X GET 'http://172.16.100.67:9200/_cluster/health?pretty'
+		state：curl -X GET 'http://172.16.100.67:9200/_cluster/state/<metrics>?pretty'
+		stats：curl -X GET 'http://172.16.100.67:9200/_cluster/stats'
+		节点状态：curl -X GET 'http://172.16.100.67:9200/_nodes/stats'
+	Plugins：
+		插件扩展ES的功能：添加自定义的映射类型、自定义分析器、本地脚本、自定义发现方式；
+		安装方式：
+			方法一：直接将插件解压后的文件放置于plugins目录中即可；
+			方法二：使用plugin脚本进行安装；
+				/usr/share/elasticsearch/bin/plugin -h
+					-l 查询已经安装的插件
+					-i, --install
+					-r, --remove
+方法二安装案例：                          
+    /usr/share/elasticsearch/bin/plugin -i bigdesk -u file:///home/chenhao/bigdesk-latest.zip   有对应的插件压缩包
+    /usr/share/elasticsearch/bin/plugin -l 查看是否有bigdesk
+    service elasticsearch restart 
+    在浏览器中执行http://192.168.139.192:9200/_plugin/bigdesk  (常见的pluging-name有bigdesk，head，kopf，marvel）
+CRUD操作相关的API：即增删查改
+		创建文档：创建文档后自动创建索引（这是必然的，因为文档对应行，索引对应表，肯定要先有表后才有文档）
+			curl -X PUT 'localhost:9200/students/class1/2?pretty' -d '
+			> {
+			>   "first_name": "Rong",
+			>   "last_name": "Huang",
+			>   "gender": "Female",
+			>   "age": 23,
+			>   "courses": "Luoying Shenjian" (最后一行这里不能加逗号）
+			> }'  敲一次enter键
+			{
+			  "_index" : "students",  students表示索引
+			  "_type" : "class1",     class1表示索引中的类型
+			  "_id" : "2",            id号
+			  "_version" : 1,
+			  "created" : true
+			}
+
+		获取文档：			
+			~]# curl -X GET 'localhost:9200/students/class1/2?pretty'
+			{
+			  "_index" : "students",
+			  "_type" : "class1",
+			  "_id" : "2",
+			  "_version" : 1,
+			  "found" : true,
+			  "_source":
+			{
+			  "first_name": "Rong",
+			  "last_name": "Huang",
+			  "gender": "Female",
+			  "age": 23,
+			  "courses": "Luoying Shenjian"
+			}
+			}
+
+		更新文档：
+			PUT方法会覆盖原有文档；如果只更新部分内容，得使用_update API
+				~]# curl -X POST 'localhost:9200/students/class1/2/_update?pretty' -d '
+				{
+				  "doc": { "age": 22 }
+				}' 敲一次enter键
+				{
+				  "_index" : "students",
+				  "_type" : "class1",
+				  "_id" : "2",
+				  "_version" : 2
+				}
+
+		删除文档：DETELE（删除文档后索引还存在）
+			~]# curl -X DELETE 'localhost:9200/students/class1/2'
+		删除索引：
+			~]# curl -X DELETE 'localhost:9200/students'
+			~]# curl -X GET 'localhost:9200/_cat/indices?v'
+	查询数据:
+		Query API
+			Query DSL（domain search language）：JSON based language for building complex queries.
+			用户实现诸多类型的查询操作，比如，simple term query, phrase, range boolean, fuzzy等；
+		ES的查询操作执行分为两个阶段：感觉和hadoop很相似
+			分散阶段：
+			合并阶段：
+		查询方式：向ES发起查询请求的方式有两种：
+				1、通过Restful request API查询，也称为query string；
+				2、通过发送REST request body进行；
+                                query string查询方式案例：
+				~]# curl -X GET 'localhost:9200/students/_search?pretty'
+                                request body查询方式案例：
+				~]# curl -X GET 'localhost:9200/students/_search?pretty' -d '
+				> {
+				>   "query": { "match_all": {} }
+				> }'  
+查询，删除结合的案例操作：
+      curl -X GET 'http://192.168.139.192:9200/_cat/indices'             先获取有哪些索引
+      curl -X GET 'http://192.168.139.192:9200/students/_search?pretty'  获取对应索引下的文档
+      curl -X DELETE 'http://192.168.139.192:9200/students/class1/2'     删除文档
+      curl -X DELETE 'http://192.168.139.192:9200/students'              删除索引
+      curl -X GET 'http://192.168.139.192:9200/_cat/indices'             再次查看索引是否已经删除
+49-3,68分钟
+		多索引、多类型查询：
+			/_search：所有索引；
+			/INDEX_NAME/_search：单索引；
+			/INDEX1,INDEX2/_search：多索引；
+			/s*,t*/_search：
+			      /students/class1/_search：单类型搜索
+			     /students/class1,class2/_search：多类型搜索，此处的calss1和class2就是类型
+	Mapping和Analysis：
+		ES：对每一个文档，会取得其所有域的所有值，生成一个名为“_all”的域；执行查询时，如果在query_string未指定查询的域，则在_all域上执行查询操作；
+			GET /_search?q='Xianglong'
+			GET /_search?q='Xianglong%20Shiba%20Zhang'                 （%20表示空格，在firefox浏览器中直接给空格就可以）
+			GET /_search?q=courses:'Xianglong%20Shiba%20Zhang'
+			GET /_search?q=courses:'Xianglong'
+		前两个：表示在_all域搜索；
+		后两个：在指定的域上搜索；
+		数据类型：string, numbers, boolean, dates
+		查看指定类型的mapping示例：
+			~]# curl -X GET  'localhost:9200/students/_mapping/class1?pretty'（即查看class1存放数据的类型）
+		ES中搜索的数据广义上可被理解为两类：
+			types:exact 在指定类型上做搜索，精确搜索
+			full-text   全文搜索
+			精确值：
+                            指未经加工的原始值；
+                            在搜索时进行精确匹配；
+			full-text：
+                            用于引用文本中数据；
+                            判断文档在多大程序上匹配查询请求，即评估文档与用户请求查询的相关度；
+			为了完成full-text搜索，ES必须首先分析文本，并创建出倒排索引；倒排索引中的数据还需进行“正规化”为标准格式；
+				分词
+				正规化（比如大写字母转换成小写字母，复数变成单数）
+				分词和正规化即分析
+			分析需要由分析器进行：analyzer
+				分析器由三个组件构成：字符过滤器、分词器、分词过滤器
+				ES内置的分析器：
+					Standard analyzer：（是ES的默认分析器）
+					Simple analyzer
+					Whitespace analyzer
+					Language analyzer
+				分析器不仅在创建索引时用到；在构建查询时也会用到；
+49-4
+		Query DSL：domain search language
+			request body分成两类：
+					query dsl： 执行full-text查询时，基于相关度来评判其匹配结果；query dsl查询执行过程复杂，且不会被缓存；
+					filter dsl：执行exact即精确查询时，基于其结果为“yes”或“no”进行评判；filter dsl速度快，且结果缓存；
+			query dsl语句有两种结构：
+					结构一：全文搜索
+                                        {
+						QUERY_NAME: {
+							AGGUMENT: VALUE,
+							ARGUMENT: VALUE,...
+						}
+					}
+                                        结构二：指定域进行查询，即精确搜索
+					{
+						QUERY_NAME: {
+							FIELD_NAME: {
+								ARGUMENT: VALUE,...
+							}
+						}
+					}
+
+			filter dsl：
+					term filter：精确匹配包含指定term的文档，（term表示学期，条款，项，把...称为）
+                                        具体操作案例：
+					curl -X GET 'localhost:9200/students/_search?pretty' -d '
+                                              {
+							"query": {
+								"term": {
+									"name": "Guo"
+								}
+							}
+						}'
+					terms filter：用于多值精确匹配；
+                                        具体操作案例：
+                                        curl -X  GET 'localhost:9200/students/_search?pretty' -d '
+                                            {
+                                                         "query": {
+						               "terms": { 
+                                                                    "name": ["Guo", "Rong"] 
+                                                                }
+                                                          }         
+                                             }'
+					range filters：用于在指定的范围内查找数值或时间。---没有查询成功
+                                        curl -X  GET 'localhost:9200/students/_search?pretty' -d '
+						{ "range": 
+							"age": {
+								"gte": 15,
+								"lte": 25
+							}
+						}'
+						gt, lt, gte, lte
+					exists and missing filters：（案例没有执行成功）
+                                        curl -X  GET 'localhost:9200/students/_search?pretty' -d '
+						{ 
+							"exists": {
+								"age": 25
+							}
+						}'
+					boolean filter：
+						基于boolean的逻辑来合并多个filter子句；
+							must：其内部所有的子句条件必须同时匹配，即and；
+								must: {
+									"term": { "age": 25 }
+									"term": { "gender": "Female" }
+								}
+							must_not：其所有子句必须不匹配，即not
+								must_not: {
+									"term": { "age": 25 }
+								}
+							should：至少有一个子句匹配，即or
+								should: {
+									"term": { "age": 25 }
+									"term": { "gender": "Female" }
+								}
+			QUERY DSL：
+			   match_all Query：用于匹配所有文档，没有指定任何query，默认即为match_all query.
+						{ "match_all": {} }
+                           使用案例：
+                              curl -X GET 'http://192.168.139.192:9200/new/_search?pretty'  -d '
+                              > {
+                              >  "query":{"match_all":{}}
+                              > }' 
+			    match Query：
+					在几乎任何域上执行full-text或exact-value查询；
+						如果执行full-text查询：首先对查询时的语句做分析；
+							{ "match": {"students": "Guo" }}
+						如果执行exact-value查询：搜索精确值；此时，建议使用过滤，而非查询；
+							{ "match": {"name": "Guo"} }
+			   multi_match Query：
+					用于在多个域上执行相同的查询；
+						{
+							"multi_match":
+								"query": full-text search
+								"field": {'field1', 'field2'}
+						}
+                                        举例如下
+                                        curl -X GET 'http://192.168.139.192:9200/new/_search?pretty'  -d '
+						{
+							"multi_match":
+								"query": {
+									"students": "Guo"
+								}
+								"field":
+									{
+										"name",
+										"description"
+									}
+						}'
+				bool query：
+					基于boolean逻辑合并多个查询语句；与bool filter不同的是，查询子句不是返回"yes"或"no"，而是其计算出的匹配度分值。
+                                        因此，boolean Query会为各子句合并其score；
+						must：
+						must_not:
+						should：
+			合并filter和query：
+                             curl -X GET 'http://192.168.139.192:9200/new/_search?pretty'  -d '
+				{
+					"filterd": {
+						query: { "match": {"gender": "Female"} }
+						filter: { "term": {"age": 25}}
+					}
+				}'
+		查询语句语法检查：
+			GET /INDEX/_validate/query?pretty
+			{
+				...
+			}
+			GET /INDEX/_validate/query?explain&pretty
+			{
+				...
+			}
+ELK整体介绍：
+   L: logstash，作用是收集日志，如果有其他方法可以收集日志，也可以不用logstash
+   K: Kibana，提供一个简便的图形搜索接口，可以在一定程度上替代命令行搜索接口,实际中搜索工作都是通过kibana来执行，基本不会使用命令行进行搜索
+   E：elasticsearch，用于存储，分析，搜索数据
+elasticsearch+Logstash++Kibana的工作模式介绍：
+   1）在需要被收集日志的各节点上安装Logstash agent
+   2）各节点上的Logstash agent会把收集到的数据发给Logstash server
+   3）Logstash server再把数据发给elasticsearch集群
+   4）用户的查询请求通过kibana发给elasticsearch处理，再把处理结果返回给kibana。替代了之前的文本形式查询操作
+logstash的安装步骤：
+        先在单节点上安装使用logstash
+        yum  logstash-1.5.4-1.noarch.rpm  -y  有对应的rpm包
+        vim /etc/profile.d/logstash.sh 
+            export PATH=/opt/logstash/bin/:$PATH
+        source /etc/profile.d/logstash.sh  
+        cd /etc/logstash/conf.d/
+        vim sample.conf
+           input {
+                 stdin {}
+           }
+           output {
+                 stdout {
+                    codec => rubydebug
+                 }
+           }
+        logstash -f sample.conf --configtest                  logstash是重量级进程，测试比较缓慢
+                 Configuration OK                             务必要确保配置文件语法正确
+        logstash -f sample.conf  
+         OpenJDK 64-Bit Server VM warning: If the number of processors is expected to increase from one, then you should configure the number of parallel GC threads             
+         appropriately using -XX:ParallelGCThreads=N
+         Logstash startup completed  显示启动完成
+         hello logstash  直接在前台输入文本内容
+{
+       "message" => "hello logstash ",
+      "@version" => "1",
+    "@timestamp" => "2017-08-12T16:34:53.539Z",
+          "host" => "node1"
+}
+	Logstash：
+		支持多数据获取机制，通过TCP/UDP协议、文件、syslog、windows EventLogs及STDIN等；获取到数据后，它支持对数据执行过滤、修改等操作；
+		JRuby语言，JVM；
+		配置框架：
+			input {
+				...
+			}
+
+			filter {
+				...
+			}
+
+			output {
+				...
+			}
+			四种类型的插件：
+				input, filter, codec, output
+			数据类型：
+				Array：[item1, item2,...]
+				Boolean：true, false
+				Bytes：
+				Codec：编码器
+				Hash：key => value
+				Number：
+				Password：
+				Path：文件系统路径；
+				String：字符串
+			字段引用：[]
+			条件判断：
+				==, !=, <, <=, >, >=
+				=~, !~
+				in, not in
+				and, or
+				()
+29-5
+回顾：ES查询、Logstash
+	ES查询：query-string，Query DSL
+		q=class:"Huashan"
+	CRUD：
+	    curl -XPUT, -XGET, -XPOST, -XDELETE
+	_validate
+	Logstash：数据收集，日志数据；
+		  高度插件化：input, codec, filter, output	
+ELK stack(3)
+	Logstash的工作流程：input | filter | output, 如无需对数据进行额外处理，filter可省略；
+		input {
+			stdin {}
+		}
+
+		output {
+			stdout {
+				codec 	=> rubydebug(定义输出格式）
+			}
+		}
+
+Logstash的插件：
+       input插件：file，udp，redis等
+			File：从指定的文件中读取事件流；
+				使用FileWatch（Ruby Gem库）监听文件的变化。
+				.sincedb：记录了每个被监听的文件的inode, major number, minor nubmer, pos; 
+                        file使用案例：
+                                cd /etc/logstash/conf.d/
+                                vim message.conf
+				input {
+				    file {
+					path => ["/var/log/messages"]
+					type => "system"    指明类型，便于后续调用分析，可以随便定义
+					start_position => "beginning"
+				    }
+				}
+				output {
+				    stdout {
+					codec	=> rubydebug
+				    }
+				}			
+                               logstash -f message.conf  --configtest
+                               logstash -f message.conf 
+			udp：通过udp协议从网络连接来读取Message，其必备参数为port，用于指明自己监听的端口，host则用指明自己监听的地址；
+			     collectd：性能监控程序；（用于收集信息发给logstash）
+                             collectd使用案例：
+                                      yum install collectd  -y 对应的rpm包在epel源
+                                      vim /etc/collectd.conf
+								Hostname    "node3.magedu.com"
+								LoadPlugin syslog
+								LoadPlugin cpu
+								LoadPlugin df
+								LoadPlugin interface
+								LoadPlugin load
+								LoadPlugin memory
+								LoadPlugin network
+								<Plugin network>
+								    	<Server "172.16.100.70" "25826">   172.16.100.70是logstash主机的地址，25826是其监听的udp端口；
+								        </Server>
+								</Plugin>
+								Include "/etc/collectd.d"
+				        service  collectd start 
+                                        说明：172.16.100.70是logstash主机的地址，25826是logstash监听的udp端口,表示把collectd进程收集到的信息发给logstash
+				        cd /etc/logstash/conf.d
+                                        vim udp.conf 
+					input {
+					    udp {
+						port 	=> 25826 表示logstash监听的端口为25826
+					  	codec 	=> collectd {}
+						type	=> "collectd"
+					    }
+					}
+					output {
+					    stdout {
+						codec	=> rubydebug
+					    }
+					}
+                                        logstaash -f udp.conf --configtest
+                                        logstaash -f udp.conf
+    filter插件：用于在将event通过output发出之前对其实现某些处理功能，比如grok
+		1）grok：用于分析并结构化文本数据；目前是logstash中将非结构化日志数据转化为结构化的可查询数据的不二之选。
+			 比如可以处理syslog, apache, nginx等日志
+			 模式定义位置：/opt/logstash/vendor/bundle/jruby/1.9/gems/logstash-patterns-core-0.3.0/patterns/grok-patterns  其中就有apache的日志分割定义
+			 语法格式：
+					%{SYNTAX:SEMANTIC}
+					  SYNTAX：预定义模式名称；
+					  SEMANTIC：匹配到的文本的自定义标识符，即自定义的名称；
+                                        举例解释格式化意思：
+					1.1.1.1 GET /index.html 30 0.23
+					%{IP:clientip} %{WORD:method} %{URIPATHPARAM:request} %{NUMBER:bytes} %{NUMBER:duration}
+                                        上下两句一一对应分割
+                           grok具体使用案例：
+                                                cd /etc/logstash/conf.d
+                                                vim grok.conf 
+						input {
+						    stdin {}
+						}
+						filter {
+						    grok {
+							match => { "message" => "%{IP:clientip} %{WORD:method} %{URIPATHPARAM:request} %{NUMBER:bytes}                                                                                  
+                                                                   %{NUMBER:duration}" }
+						    }
+						}
+						output {
+						    stdout {
+							codec 	=> rubydebug
+						    }
+						}
+                                       logstash -f grok.conf  --configtest 
+                                        Configuration OK
+                                       logstash -f grok.conf   
+OpenJDK 64-Bit Server VM warning: If the number of processors is expected to increase from one, then you should configure the number of parallel GC threads appropriately using -XX:ParallelGCThreads=N
+Logstash startup completed
+1.1.1.1 GET /index.html 30 0.23    此处手动输入message
+{
+       "message" => "1.1.1.1 GET /index.html 30 0.23",
+      "@version" => "1",
+    "@timestamp" => "2017-08-12T20:06:26.776Z",
+          "host" => "node2",
+      "clientip" => "1.1.1.1", 
+        "method" => "GET",
+       "request" => "/index.html",
+         "bytes" => "30",
+      "duration" => "0.23"
+}
+补充说明：
+        grok自动到/opt/logstash/vendor/bundle/jruby/1.9/gems/logstash-patterns-core-0.3.0/patterns/目录下面寻找预定义模式	
+        ouput把所有的输出信息以message输出，所以上面的配置信息可以以message表示
+				自定义grok的模式：
+					grok的模式是基于正则表达式编写，其元字符与其它用到正则表达式的工具awk/sed/grep/pcre差别不大。
+					PATTERN_NAME (?the pattern here)
+				匹配apache log的具体使用案例：
+                                cd /etc/logstash/conf.d
+                                vim httpdlog.conf 
+					input {
+					    file {
+					        path    => ["/var/log/httpd/access_log"]
+					        type    => "apachelog"
+					        start_position => "beginning"
+					    }
+					}
+					filter {
+					    grok {
+					        match => { "message" => "%{COMBINEDAPACHELOG}" }
+					    }
+					}
+					output {
+					    stdout {
+					        codec   => rubydebug
+					    }
+					}	
+				logstash -f httpdlog.conf  
+OpenJDK 64-Bit Server VM warning: If the number of processors is expected to increase from one, then you should configure the number of parallel GC threads appropriately using -XX:ParallelGCThreads=N
+{
+        "message" => "192.168.139.171 - - [13/Aug/2017:04:25:52 +0800] \"GET / HTTP/1.1\" 200 19 \"-\" \"curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.14.0.0 zlib/1.2.3 libidn/1.18 libssh2/1.4.2\"",
+       "@version" => "1",
+     "@timestamp" => "2017-08-12T20:26:46.938Z",
+           "host" => "node2",
+           "path" => "/var/log/httpd/access_log",
+           "type" => "apachelog",
+       "clientip" => "192.168.139.171",
+          "ident" => "-",
+           "auth" => "-",
+      "timestamp" => "13/Aug/2017:04:25:52 +0800",
+           "verb" => "GET",
+        "request" => "/",
+    "httpversion" => "1.1",
+       "response" => "200",
+          "bytes" => "19",
+       "referrer" => "\"-\"",
+          "agent" => "\"curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.14.0.0 zlib/1.2.3 libidn/1.18 libssh2/1.4.2\""
+}
+				nginx log的匹配方式操作案例：
+                                        logstash使用中最困难的就是切词，可以在http://grokdebug.herokuapp.com/这个地址先验证是否可以正常切词
+					1）将如下信息添加至 /opt/logstash/vendor/bundle/jruby/1.9/gems/logstash-patterns-core-0.3.0/patterns/grok-patterns文件的尾部：
+					   NGUSERNAME [a-zA-Z\.\@\-\+_%]+
+					   NGUSER %{NGUSERNAME}
+					   NGINXACCESS %{IPORHOST:clientip} - %{NOTSPACE:remote_user} \[%{HTTPDATE:timestamp}\] \"(?:%{WORD:verb} %{NOTSPACE:request}
+                                                     (?: HTTP/%{NUMBER:httpversion})?|%{DATA:rawrequest})\" % {NUMBER:response} (?:%{NUMBER:bytes}|-) 
+                                                    %{QS:referrer} %{QS:agent} %{NOTSPACE:http_x_forwarded_for}								                                                  2)cd /etc/logstash/conf.d
+                                        3)vim nginxlog.conf		
+					input {
+					    file {
+							path 	=> ["/var/log/nginx/access.log"]
+							type	=> "nginxlog"
+							start_position => "beginning"
+					    }
+					}
+					filter {
+					    grok {
+							match => { "message" => "%{NGINXACCESS}" }
+					    }
+					}
+					output {
+					    stdout {
+							codec	=> rubydebug
+					    }
+					}
+                                        4)logstash -f nginxlog.conf  
+OpenJDK 64-Bit Server VM warning: If the number of processors is expected to increase from one, then you should configure the number of parallel GC threads appropriately using -XX:ParallelGCThreads=N
+{
+       "message" => "192.168.139.171 - - [13/Aug/2017:04:35:00 +0800] \"GET / HTTP/1.1\" 200 3698 \"-\" \"curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.14.0.0 zlib/1.2.3 libidn/1.18 libssh2/1.4.2\" \"-\"",
+      "@version" => "1",
+    "@timestamp" => "2017-08-12T20:40:27.631Z",
+          "host" => "node2",
+          "path" => "/var/log/nginx/access.log",
+          "type" => "nginxlog",
+          "tags" => [
+        [0] "_grokparsefailure"
+    ]
+}
+49-6
+   output插件：      
+	    elasticsearch:把输出数据存储到elasticsearch
+            redis:       
+               可以做为输入插件也可以做为输出插件，因为redis可以作为logstash的agent和server之间的消息缓冲队列，这里使用的数据类型一般是lists
+               从redis读取数据，支持redis channel（频道）和lists两种方式；
+   logstash agent+redis+logstash server+elasticsearch的具体配置步骤：
+            工作模式：logstash agent收集日志信息发给redis，redis做为消息缓冲队列，redis再把日志信息发给logstash server，
+                      logstash server再把日志信息发给elasticsearch存储，此时用户就可以查询，分析日志信息了
+            架构说明:
+                   192.168.139.171配置logstash agent+redis
+                   192.168.139.192配置logstash server+elasticsearch
+            192.168.139.171节点：
+               1）先配置logstash agent
+               cd /etc/logstash/conf.d 
+               vim redis.conf
+               input {
+                    file {
+                       path    => ["/var/log/nginx/access.log"]
+                       type    => "nginxlog"
+                       start_position => "beginning"
+                    }
+               }
+               filter {
+                    grok {
+                       match => { "message" => "%{NGINXACCESS}" }
+                    }
+               }
+              output {
+                  redis {
+                     port    => "6379"            redis的端口
+                     host   =>["192.168.139.171"] redis的服务器地址
+                     data_type => "list"          对应redis的数据类型为lists
+                     key  => "logstash-%{type}"   lists的名字为logstash-%{type}，此处的%{type}就是上面的nginxlog
+                  }
+              }
+
+              logstash -f redis.conf --configtest 
+              logstash -f redis.conf
+              2）配置redis
+              service redis start 
+              redis-cli -h 192.168.139.171 -p 6389 
+              192.168.139.171:6379> LLEN logstash-nginxlog  如果logstash-nginxlog列表为空，访问下nginx就可以了
+              (integer) 4
+              192.168.139.171:6379> LINDEX logstash-nginxlog 0 
+"{\"message\":\"192.168.139.171 - - [15/Aug/2017:03:48:24 +0800] \\\"GET / HTTP/1.1\\\" 200 3698 \\\"-\\\" \\\"curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.14.0.0 zlib/1.2.3 libidn/1.18 libssh2/1.4.2\\\" \\\"-\\\"\",\"@version\":\"1\",\"@timestamp\":\"2017-08-14T19:48:24.798Z\",\"host\":\"node2\",\"path\":\"/var/log/nginx/access.log\",\"type\":\"nginxlog\",\"tags\":[\"_grokparsefailure\"]}"
+
+           192.168.139.171节点：
+             1）配置logstash server
+                vim logstashserver.conf 
+                 input {
+                      redis {
+                         port    => "6379"
+                         host   =>["192.168.139.171"]
+                         data_type => "list"
+                         key  => "logstash-nginxlog"
+                       }
+                 }
+                output {
+                     elasticsearch {
+                     cluster =>"myes"    对应ES集群中的clustername
+                     index => "logstash-%{+YYYY.MM.dd}"  存储在elasticsearch中的索引
+                     }
+                }
+               logstash -f logstashserver.conf  --configtest
+               logstash -f logstashserver.conf  要确保启动信息里面没有错误
+            2）配置elasticsearch集群
+               service elasticsearch start 
+               curl -X GET 'http://192.168.139.192:9200/_cat/indices/?pretty' 
+yellow open .marvel-2017.08.14  1 1  497 0  1.2mb  1.2mb 
+yellow open logstash-2017.08.14 5 1    4 0 11.3kb 11.3kb   确保logstash-2017.08.14索引存在
+yellow open new                 5 1    2 0  5.9kb  5.9kb 
+yellow open .marvel-2017.08.12  1 1 2663 0  7.1mb  7.1mb
+        curl -X GET 'http://192.168.139.192:9200/logstash-2017.08.14/_search/?pretty'
+{
+  "took" : 7245,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 5,
+    "successful" : 5,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : 4,
+    "max_score" : 1.0,
+    "hits" : [ {
+      "_index" : "logstash-2017.08.14",
+      "_type" : "nginxlog",
+      "_id" : "AV3ikmFoHbqxOPFQabs6",
+      "_score" : 1.0,
+      "_source":{"message":"192.168.139.171 - - [15/Aug/2017:05:00:07 +0800] \"GET / HTTP/1.1\" 200 3698 \"-\" \"curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.14.0.0 zlib/1.2.3 libidn/1.18 libssh2/1.4.2\" \"-\"","@version":"1","@timestamp":"2017-08-14T21:00:07.505Z","host":"node2","path":"/var/log/nginx/access.log","type":"nginxlog","tags":["_grokparsefailure"]}
+    }, {
+      "_index" : "logstash-2017.08.14",  来自哪个索引
+      "_type" : "nginxlog",              来自哪个类别
+      "_id" : "AV3iknH1HbqxOPFQabs9",
+      "_score" : 1.0,
+补充说明：
+    一）所有插件的具体使用说明查看elasticsearch网站里面的logstash帮助文档
+    二）kibana只是提供了一个图形查看界面，可以替代curl -X GET 'http://192.168.139.192:9200/logstash-2017.08.14/_search/?pretty'等类似命令
+kibana的安装步骤：
+        tar -zxf /home/chenhao/kibana-4.1.2-linux-x64.tar.gz  -C /usr/local/
+        cd /usr/local
+        ln -sv kibana-4.1.2-linux-x64 kibana
+        cd kibana
+        vim config/kibana.yml
+             port: 5601
+             host: "0.0.0.0"
+             elasticsearch_url: "http://192.168.139.192:9200"  对应elasticsearch的服务器地址
+        bin/kibana -l /var/log/kibana.log &  在后台启动kibana ，并且制定日志文件为/var/log/kibana.log
+        ss -tunl 查看5601端口是否启动,访问对应主机的5601端口即可访问kibana,实际工作多是用kibana来替代命令行的查询
+    三）logstash server的output可以先配置成stdout，确认可以正常输出后，再把output修改为elasticsearch
+             cd /etc/logstash/conf.d 
+             vim logstashserver.conf 
+                 input {
+                      redis {
+                         port    => "6379"
+                         host   =>["192.168.139.171"]
+                         data_type => "list"
+                         key  => "logstash-nginxlog"
+                       }
+                 }
+                output {
+                     stdout {
+                     codec => rubydebug
+                     }
+                } 
+             logstash -f redis.conf  --configtest
+	     logstash -f redis.conf  
+OpenJDK 64-Bit Server VM warning: If the number of processors is expected to increase from one, then you should configure the number of parallel GC threads appropriately using -XX:ParallelGCThreads=N
+Logstash startup completed
+{
+       "message" => "192.168.139.171 - - [15/Aug/2017:03:48:24 +0800] \"GET / HTTP/1.1\" 200 3698 \"-\" \"curl/7.19.7 (x86_64-redhat-linux-gnu) libcurl/7.19.7 NSS/3.14.0.0 zlib/1.2.3 libidn/1.18 libssh2/1.4.2\" \"-\"",
+      "@version" => "1",
+    "@timestamp" => "2017-08-14T19:48:24.798Z",
+          "host" => "node2",
+          "path" => "/var/log/nginx/access.log",
+          "type" => "nginxlog",
+          "tags" => [
+        [0] "_grokparsefailure"
+    ]
+}
+    四）也可以以service logstash start方式启动logstash，但是此时只能在/etc/logstash/conf.d/中放置一个配置文件

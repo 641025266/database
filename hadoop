@@ -1,0 +1,679 @@
+﻿hadoop生态介绍：
+1)HDFS—Hadoop分布式文件系统。它是一个分布式的、面向块的、不可更新的、高度伸缩性的、可运行在集群中普通硬盘上的文件系统。此外，HDFS还是一个独立的工具，
+  它可以独立于Hadoop生态系统中其他组件而运行(但是如果我们想要使HDFS高可用时，还需要依赖zookeeper和日志管理器，但这又是另外一码事了)。
+2)MapReduce框架—这是一个基本的在集群中一组标准硬件上执行的分布式计算框架。我们没必要一定在HDFS张使用它—因为文件系统是可插拔的；同样的，我们也没必要一定在yarn中使用它，
+  因为资源管理器是可插拔的：例如我们可以用Mesos来替换它。
+3)YARN—Hadoop集群中默认的资源管理器。但是我们可以在集群中不使用yarn，而是将我们的mr(译注:map/reduce)任务运行在Mesos之上；或者仅仅在集群中运行不需要依赖yarn的hbase。
+4)Hive—Hive是一个构建在MapReduce框架之上的类sql查询引擎，它可以将hiveQL语句转换为一系列运行在集群中的mapReduce任务。此外，hdfs也不是唯一的存储系统，
+  也不一定非得使用MapReduce框架，比如在这里我么可以替换为Tez。
+5)Hbase—基于HDFS的键值对存储系统，为Hadoop提供了联机事务处理(OLTP)能力。Hbase仅仅依赖HDFS和zookeeper;但是Hbase只能依赖于HDFS吗？不是的，Hbase除了可以运行在HDFS上之外，
+  还可以运行在Tachyon(内存文件系统)、MapRFS、IBM GPFS以及其他一些框架之上。 
+
+PV（page view）即页面浏览量
+面试题：为什么HDFS的chunk默认大小是64MB而不是更大或更小，默认3个副本为什么不是更多？
+HDFS的Block设计的如此之大，也就是为了最小化寻道时间。把一个数据块设计的足够大，就能够使得数据传输的时间显著地大于寻找到Block所在时间。
+这样传输一个由多个Block组成的文件的时间就取决于磁盘的传输速率
+
+hadoop是一个大数据处理平台，但不是一有数据hadoop就会跑起来，关键是要有人针对特定的数据写好数据处理程序，也就是说maper和reducer是一个公司的开发程序员写的
+哪一个key发往哪一个reducer也是程序员决定的，程序员还需要提前对原始数据做成KV键值对，有多少个mapper和reducer是由jobtracker决定的
+所以整个大数据处理过程应该是：
+1)大数据的来源有可能是公司程序员写好一个类似爬虫程序从网络爬取，也有可能是某个服务产生
+2)产生的大数据存储在hdfs，但是在存储到hdfs之前，数据需要做成kv键值对形式
+3)mapreduce负责分析存储在hdfs里面的大数据，而且mapreduce也需要程序员来写
+
+Bigdata：
+	结构化数据：约束（可以实现精确搜索）
+	半结构化数据：有元数据（但是没有严格的约束）
+	非结构化数据：KV键值对，没有元数据(如日志信息),非结构化数据是数据结构不规则或不完整，没有预定义的数据模型，比如所有格式的办公文档、文本、图片、XML, HTML等
+	搜索引擎：搜索组件、索引组件,比如蜘蛛程序爬来的数据是非结构化或半结构化数据(需要存储和分析处理平台)
+        google发布了如下3片论文
+                        2003年：The Google File System（适用于流式数据），这篇论文被山寨成DFS （现在称为HDFS）
+			2004年：MapReduce: Simplified（简化） Data Processing On Large Cluster，这篇论文被山寨成MapReduce 
+                        2006年：BigTable：A Distributed Storage System for Structure Data，这篇论文被山寨成HBase,即hadoop database
+hadoop的作者之前已经完成nutch+Lucene来实现数据的采集和存储功能，nutch负责从网络上爬数据，lucene负责存储，分析数据。
+但是随着数据的增大，这套系统数据处理能力下降，所以需要一套系统可以处理海量数据，所以结合google论文开发了hadoop，
+hdfs负责存储数据，mapreduce负责分析数据
+
+hadoop特点：
+      1）数据分布在各个节点，因此程序需要分布运行在各个节点上，然后把运行后的结果合并在一起返回给客户端
+      2）先探测该节点是否有对应的数据，每个节点程序运行有快慢之分
+      3）map表示映射，reduce表示折叠，合并
+      4）MapReduce是Nutch处理机制，即批处理机制(MapReduce扮演3种角色，开发API，运行框架，运行时环境）
+      5）HDFS+MapReduce就被称为Hadoop名字(java语言开发,HDFS表示hadoop DFS）
+      6）hadoop有中心节点，即NN（用于做元数据服务器，但是是单节点），hadoop2以后针对NN有高可用解决方案，即zookeeper--重要
+      7）hadoop解决数据高可用的方案是数据副本
+      8）hadoop有两个集群，分别是存储集群hdfs(NN,SNN,DN)和程序运行时集群mapreduce(jobtracker,作业追踪器；tasktracker，任务追踪器)--重要
+      9）hdfs集群中的DN与mapreduce集群中的tasktracker是同一个节点
+     10）存储在DN上的数据已经是键值对，需要有程序提前把原始数据做成键值对
+     11）Hadoop的核心是Hadoop分布式文件系统（HDFS）和MapReduce，
+         但Common、Avro、Chukwa、Hive、HBase（分布式数据库）等子项目提供了互补性服务或在核心层之上提供了更高层的服务。
+     12）hadoop是一个大数据分布式计算平台
+     13）MapReduce是一种编程模型，用于大规模数据集（大于1TB）的并行运算。“映射”（map）、“化简”（reduce）等概念和它们的主要思想都是从函数式编程语言中借来的。
+         它使得编程人员在不了解分布式并行编程的情况下也能方便地将自己的程序运行在分布式系统上。
+         MapReduce在执行时先指定一个map（映射）函数，把输入键值对映射成一组新的键值对，
+         经过一定的处理后交给reduce，reduce对相同key下的所有value进行处理后再输出键值对作为最终的结果
+     14）HBase是一个分布式的、面向列的开源数据库，该技术来源于Google的论文“Bigtable：一个结构化数据的分布式存储系统”。
+         如同Bigtable利用了Google文件系统（Google File System）提供的分布式数据存储方式一样，HBase在Hadoop之上提供了类似于Bigtable的能力。
+         HBase是Hadoop 项目的子项目。HBase不同于一般的关系数据库，其一，HBase是一个适合于存储非结构化数据的数据库；其二，HBase是基于列而不是基于行的模式。
+         HBase和Bigtable使用相同的数据模型。用户将数据存储在一个表里，一个数据行拥有一个可选择的键和任意数量的列。由于HBase表是疏松的，用户可以给行定义各种不同的列。
+         HBase主要用于需要随机访问、实时读写的大数据（Big Data）
+     15）HDFS是一个分布式文件系统。由于HDFS具有高容错性（fault-tolerant）的特点，所以可以设计部署在低廉（low-cost）的硬件上。
+         它可以通过提供高吞吐率（high throughput）来访问应用程序的数据，适合那些有着超大数据集的应用程序。
+         HDFS放宽了可移植操作系统接口（POSIX，Portable Operating System Interface）的要求，这样就可以实现以流的形式访问文件系统中的数据。
+         HDFS原本是开源的Apache项目Nutch的基础结构，最后它成为了Hadoop的基础架构之一
+170522,50-1
+                批处理：（了解mapreduce的前提）
+                函数式编程：Lisp, ML函数式编程语言；高阶函数[著名函数，如map（把一个任务映射成多个任务）, fold(折叠）]
+                                         map: 
+					    map(f())
+					    map：接受一个函数为参数，并将其应用于列表中的所有元素；从而生成一个结果列表；
+					    "Ou Yangfeng", "Dongfang Bubai", "Saodi Seng", "Dugu Qiubai"
+                                         fold:
+					    接受两个参数：函数，初始值
+					    fold(g(), init)
+					    "Hamo Gong", "Kuihua Baodian", "Yijin jing", "Dugu Jiujian"
+					     second   third   Kuihua Baodian
+                                mapreduce参考了map和fold的概念，但是在mapreduce中不叫map和fold，而叫mapper和reducer
+                                如统计一本书每个单词出现的次数：
+						mapper: 每100页一个单位，5 mappers
+							用于拆分成为单词；10000000
+						reducer:reducer1, reducer2
+                                为了处理进程更快，可以启动多个reducer，但是此时同一个键只能发往同一个reducer，这个过程叫shuffle and sort（传输和排序）
+                                                统计结果如下：
+                                                        reducer1：this 500
+							           is 20
+                                                        reducer2：how 301
+							          do 32
+                                        mapper:this 1, is 1, this 1, how 1。
+                                        reducer: this 500，is 20（还是键值结构）
+
+20170523,50-2,
+                                        MRv1 (Hadoop1) --> MRv2(Hadoop2)
+                                        Hadoop1架构：HDFS+mapreduce+各种应用
+                                        Hadoop2架构：HDFS+yarn+各种应用（包括mapreduce）
+					hadoop1: mapreduce同时负责Cluster resource manager和Data processing
+					hadoop2:把mapreduce拆分成YARN和mapreduce 
+    
+                                        MR: batch(批处理）；Tez：execution engine，执行引擎
+					     YARN：负责Cluster resourse manager，RM
+                                                   RM: 管理NM，自身运行在jobtracker节点上
+					           NM: Node Manager，运行在数据节点上
+					     mapreduce：负责Data processing
+                                                   RM管理AM，AM再管理container
+                                                   AM: Application Master，运行在数据节点上。container由AM创建
+					           container：container运行在数据节点上，mapper和reducer运行在container里面；
+                               hadoop的官网是：hadoop.apache.org,hadoop是apache基金会下面的一个项目
+                               Hive：SQL query，运行在yarn之上
+                               Zookeeper:coordination,协调  candidate表示候选人
+                               Hadoop Distribution：
+                                       Cloudera: CDH和Hortonworks: HDP，两个都是商业版本
+				       Intel：IDH
+				       MapR
+用户：yarn，hdfs，mapred
+HDFS有3个守护进程：namenode,datanode,secondarynamenode
+yarn有2个守护进程：resourcemanager,nodemanager 
+回顾：
+     Hadoop：大数据存储和处理平台
+     hdfs集群：NN，SNN（NN是名称节点Second NNH或者称为辅助NN），DN（数据节点）
+     hadoop1:mapreduce集群分为JobTracker，TaskTracker，jobtracker负责产生任务（map, reduce）
+     hadoop2:对mapreduce集群拆分成YARN和mapreduce 
+     YARN：
+	RM（对应hadoop1中的JobTracker）
+        NM（对应hadoop1中的TaskTracker）
+     mapreduce
+        RM（对应hadoop1中的JobTracker）
+        AM（application  master）
+        container（在hadoop2中，map和reduce都运行在container容器中，也就是mapreduce也运行在container中）
+Hadoop(2)（核心）
+        单机模型：测试使用；
+	伪分布式模型：运行于单机；
+	分布式模型：集群模型
+伪分布式模型安装过程：
+        1)从hadoop的官网下载hadoop.apache.org源代码,基于Java语言开发；
+          jdk：1.6, 1.7, 1.8（openjdk和oraclejdk）
+	  hadoop-2.6.2需要jdk 1.6+（本次安装）
+	  hadoop-2.7需要jdk 1.7+
+        2）确保安装jdk和对应的devel包
+           yum install -y java-1.7.0-openjdk-devel   必须要安装这个包，否则没有后续的jps命令
+        3）java程序需要的内存空间较大，建议配置在2G以上，但是1G也可以
+           vim /etc/profie.d/java.sh  即使yum安装的也必须要有JAVA_HOME
+           export JAVA_HOME=/usr
+        接下来参照对应的PDF文档，从配置单节点的hadoop2（伪分布模式）开始看
+        4）tar -zxvf hadoop-2.6.2.tar.gz -C /usr/local
+           cd /usr/local
+           ln -sv hadoop-2.6.2  hadoop
+        5)vim /etc/profie.d/hadoop.sh  
+           export HADOOP_PREFIX=/usr/local/hadoop
+	   export PATH=$PATH:${HADOOP_PREFIX}/bin:${HADOOP_PREFIX}/sbin
+	   export HADOOP_YARN_HOME=${HADOOP_PREFIX}
+	   export HADOOP_MAPPERD_HOME=${HADOOP_PREFIX}
+	   export HADOOP_COMMON_HOME=${HADOOP_PREFIX}
+	   export HADOOP_HDFS_HOME=${HADOOP_PREFIX}
+        6）编辑/usr/local/hadoop/etc/hadoop中的如下文件
+                core-site.xml
+                hdfs-site.xml
+                mapred-site.xml，该文件用于配置集群的mapreduce framework即框架，在hadoop中需指定为yarn，表明mapreduce是运行在yarn之上
+                yarn-site.xml
+
+	]# vi core-site.xml
+		<configuration>
+		    <property>
+		        <name>fs.defaultFS</name>
+		        <value>hdfs://localhost:8020</value>（hdfs的监听端口）
+		        <final>true</final>
+		    </property>
+		</configuration>
+
+	]# vi hdfs-site.xml
+		<configuration>
+		    <property>
+		        <name>dfs.replication</name>（复制数量）
+		        <value>1</value>
+		    </property>
+		    <property>
+		        <name>dfs.namenode.name.dir</name>
+		        <value>file:///var/hadoop/hdfs/nn</value>（namenode的name数据存放目录）
+		    </property>
+		    <property>
+		        <name>dfs.datanode.data.dir</name>
+		        <value>file:///var/hadoop/hdfs/dn</value>（datanode的data存放目录）
+		    </property>
+		    <property>
+		        <name>fs.checkpoint.dir</name>
+		        <value>file:///var/hadoop/hdfs/snn</value>（检查点的目录）
+		    </property>
+		    <property>
+		        <name>fs.checkpoint.edits.dir</name>
+		        <value>file:///var/hadoop/hdfs/snn</value>
+		    </property>
+	       </configuration>
+
+          ]# vi mapred-site.xml
+		<configuration>
+		    <property>
+		        <name>mapreduce.framework.name</name>
+		        <value>yarn</value>
+		    </property>
+		</configuration>
+
+	  ]# vi yarn-site.xml
+		<configuration>
+		    <property>
+		        <name>yarn.resourcemanager.address</name>
+		        <value>localhost:8032</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.scheduler.address</name>
+		        <value>localhost:8030</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.resource-tracker.address</name>
+		        <value>localhost:8031</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.admin.address</name>
+		        <value>localhost:8033</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.webapp.address</name>
+		        <value>localhost:8088</value>
+		    </property>
+		    <property>
+		        <name>yarn.nodemanager.aux-services</name>（辅助服务）
+		        <value>mapreduce_shuffle</value>
+		    </property>
+		    <property>
+		        <name>yarn.nodemanager.auxservices.mapreduce_shuffle.class</name>
+		        <value>org.apache.hadoop.mapred.ShuffleHandler</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.scheduler.class</name>
+		        <value>org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler</value>
+		    </property>
+		</configuration>
+
+             7)useradd hadoop 
+               useradd -g hadoop yarn   
+               useradd -g hadoop hdfs
+               useradd -g hadoop mapred 在目前的配置案例中没有涉及到mapred用户，可以暂时不用创建
+               mkdir -pv /var/hadoop/hdfs/{nn,snn,dn} 
+               chown -R hdfs:hadoop /var/hadoop/hdfs
+             8)cd /usr/local/hadoop
+                mkdir logs
+                chown -R yarn:hadoop ./*
+20170524 50-3,70分钟
+             9)su -l hdfs(切换到hdfs用户）
+               ]# hdfs --help   (hdfs的具体使用，查看官方网站对应的版本Document）
+               ]# hdfs namenode -format    格式化namenod,而且格式化要确保出现如下成功的信息
+                  common.Storage: Storage directory /var/hadoop/hdfs/nn has been successfully formatted.e
+               ]# chmod 755 /usr/local/hadoop/logs/  不执行该命令，下面启动进程会没有权限
+               ]# hadoop-daemon.sh   start|stop  namenode
+               ]# hadoop-daemon.sh   start|stop  secondarynamenode
+               ]# hadoop-daemon.sh   start|stop  datanode
+               ]# ll /usr/local/hadoop/logs/  进程启动成功后，会在该目录生成如下文件
+总用量 88
+-rw-r--r-- 1 hdfs hadoop 22327 3月  18 22:04 hadoop-hdfs-datanode-localhost.localdomain.log
+-rw-r--r-- 1 hdfs hadoop   714 3月  18 22:04 hadoop-hdfs-datanode-localhost.localdomain.out
+-rw-r--r-- 1 hdfs hadoop 29228 3月  18 22:08 hadoop-hdfs-namenode-localhost.localdomain.log
+-rw-r--r-- 1 hdfs hadoop   714 3月  18 22:03 hadoop-hdfs-namenode-localhost.localdomain.out
+-rw-r--r-- 1 hdfs hadoop 19204 3月  18 22:04 hadoop-hdfs-secondarynamenode-localhost.localdomain.log
+-rw-r--r-- 1 hdfs hadoop   714 3月  18 22:04 hadoop-hdfs-secondarynamenode-localhost.localdomain.out
+-rw-r--r-- 1 hdfs hadoop     0 3月  18 22:03 SecurityAuth-hdfs.audit
+               ]# jps  以hdfs或者root查看java进程
+               ]# hdfs dfs -mkdir /test 创建一个test目录,这里要注意权限问题
+               ]# hdfs dfs -ls R /test
+               ]# hdfs dfs -put /etc/fstab /test/fstab
+               ]# hdfs dfs -cat /test/fstab
+             10)
+                ]# su -l yarn
+                ]# yarn-daemon.sh     start|stop  resourcemanager
+                ]# yarn-daemon.sh     start|stop  nodemanager
+                ]# jps  以yarn或者root查看java进程
+                下面做提交任务测试验证
+             11）
+                 ]# su -l hdfs
+                 ]# yarn jar  /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-2.6.2.jar  会出现参数列表
+                 ]# yarn jar  /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-2.6.2.jar  pi 2 10   提供参数进行真正计算，最后会有一个结果
+
+50-4  回顾： 
+      Hadoop Cluster中Daemon：
+		1)HDFS（对应hdfs用户）
+                  其包含如下三个进程：
+			（1）NN,namenode是用内存来存放元数据的，所以为了高可用，要把元数据做持久化。如果NN挂了，整个系统就挂了
+			（2）SNN,在NN没有出故障前，SNN从NN中读取fsimage(文件系统映像）和editlog（编辑日志,任何元数据的改变都要在editlog中记录），然后合并在一起，
+                              同时依靠checkpoint来决定下一次从什么地方开始读取，一旦NN出故障，SNN可以马上代替
+			（3）DN 
+                         启动脚本：hadoop-daemon.sh   start|stop 
+		2)YARN(对应yarn用户）
+		        （1）ResourceManager
+			（2）NodeManager
+                         启动脚本：yarn-daemon.sh    start|stop
+
+分布式模型正常情况：NN节点（1台主机），SNN节点（1台主机），DN节点（n台主机），jobtracker节点（1台主机）
+本次安装配置：NN节点和SNN节点（1台主机）和jobtracker节点都在同一台主机，DN节点（2台主机）
+分布式模型安装过程如下：
+        master节点参考1-9步骤
+        1)从hadoop的官网下载hadoop.apache.org源代码
+        2)确保安装jdk和对应的devel包
+           yum install -y java-1.7.0-openjdk-devel 
+        3)java程序需要的内存空间较大，建议配置在2G以上，但是1G也可以
+           vim /etc/profie.d/java.sh 
+           export JAVA_HOME=/usr
+        接下来参照对应的PDF文档，从配置多节点的hadoop2（集群模型）开始看
+        4)在每一个节点配置vim /etc/hosts
+           192.168.139.170 node1 master（做namenode,secondary namenode，resourcemanager）
+           192.168.139.171 node2        (做datanode,nodemanager)
+           192.168.139.172 node3        (做datanode,nodemanager)
+        5)在master节点上配置hadoop用户可以基于密钥方式登录其他节点
+        6)tar -zxvf hadoop-2.6.2.tar.gz -C /usr/local
+           cd /usr/local
+           ln -sv hadoop-2.6.2  hadoop
+        5)vim /etc/profie.d/hadoop.sh  
+           export HADOOP_PREFIX=/usr/local/hadoop
+	   export PATH=$PATH:${HADOOP_PREFIX}/bin:${HADOOP_PREFIX}/sbin
+	   export HADOOP_YARN_HOME=${HADOOP_PREFIX}
+	   export HADOOP_MAPPERD_HOME=${HADOOP_PREFIX}
+	   export HADOOP_COMMON_HOME=${HADOOP_PREFIX}
+	   export HADOOP_HDFS_HOME=${HADOOP_PREFIX}
+        6）编辑/usr/local/hadoop/etc/hadoop中的如下文件
+                core-site.xml
+                hdfs-site.xml
+                mapred-site.xml
+                yarn-site.xml
+
+	]# vi core-site.xml
+		<configuration>
+		    <property>
+		        <name>fs.defaultFS</name>
+		        <value>hdfs://master:8020</value>   修改为master
+		        <final>true</final>
+		    </property>
+		</configuration>
+
+	]# vi hdfs-site.xml
+		<configuration>
+		    <property>
+		        <name>dfs.replication</name>
+		        <value>2</value>  备份数量修改为2
+		    </property>
+		    <property>
+		        <name>dfs.namenode.name.dir</name>
+		        <value>file:///var/hadoop/hdfs/nn</value>
+		    </property>
+		    <property>
+		        <name>dfs.datanode.data.dir</name>
+		        <value>file:///var/hadoop/hdfs/dn</value>
+		    </property>
+		    <property>
+		        <name>fs.checkpoint.dir</name>
+		        <value>file:///var/hadoop/hdfs/snn</value>
+		    </property>
+		    <property>
+		        <name>fs.checkpoint.edits.dir</name>
+		        <value>file:///var/hadoop/hdfs/snn</value>
+		    </property>
+	       </configuration>
+
+	]# vi mapred-site.xml
+		<configuration>
+		    <property>
+		        <name>mapreduce.framework.name</name>
+		        <value>yarn</value>
+		    </property>
+		</configuration>
+
+	]# vi yarn-site.xml
+		<configuration>
+		    <property>
+		        <name>yarn.resourcemanager.address</name>
+		        <value>master:8032</value> 修改为master
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.scheduler.address</name>
+		        <value>master:8030</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.resource-tracker.address</name>
+		        <value>master:8031</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.admin.address</name>
+		        <value>master:8033</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.webapp.address</name>
+		        <value>master:8088</value>
+		    </property>
+		    <property>
+		        <name>yarn.nodemanager.aux-services</name>
+		        <value>mapreduce_shuffle</value>
+		    </property>
+		    <property>
+		        <name>yarn.nodemanager.auxservices.mapreduce_shuffle.class</name>
+		        <value>org.apache.hadoop.mapred.ShuffleHandler</value>
+		    </property>
+		    <property>
+		        <name>yarn.resourcemanager.scheduler.class</name>
+		        <value>org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler</value>
+		    </property>
+		</configuration>
+             7)vim /usr/local/hadoop/etc/hadoop/slaves  此处指明从节点的ip地址
+                 192.168.139.171 node2
+                 192.168.139.172 node3 
+             8)useradd hadoop                         (可以只创建一个hadoop用户）
+               mkdir -pv /var/hadoop/hdfs/{nn,snn,dn} 
+               chown -R hadoop:hadoop /var/hadoop/hdfs
+             9)cd /usr/local/hadoop
+               mkdir logs
+               chown -R hadoop:hadoop ./*
+            10)每一个从节点也都参照master的1-9步骤进行
+            11)在master节点上统一启动hdfs集群
+               su -l hadoop  (务必切换到hadoop用户）
+               hdfs namenode -format 先格式化后才启动服务
+               start-dfs.sh 
+               jps
+               hdfs dfs -mkdir /test 
+               hdfs dfs -ls R /test
+               hdfs dfs -put /etc/fstab /test/fstab
+               hdfs dfs -cat /test/fstab
+            12)在master节点上统一启动yarn集群
+                su -l hadoop
+                start-yarn.sh 
+                jps
+                yarn jar  /usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-2.6.2.jar  pi 2 10 
+        其他常用命令
+                    yarn --help                    
+                    yarn application  -list 显示application相关信息              
+                    yarn node 
+	User Commands
+		dfs
+		fetchdt
+		fsck
+		version
+	Administration Commands
+		balancer
+		datanode
+		dfsadmin
+		mover
+		namenode
+		secondarynamenode
+
+hive介绍:
+Apache Hive是一个建立在Hadoop架构之上的数据仓库。它能够提供数据的精炼，查询和分析
+hive是基于Hadoop的一个数据仓库工具，可以将结构化的数据文件映射为一张数据库表，并提供简单的SQL查询功能，可以将SQL语句转换为MapReduce任务进行运行,
+可以通过类SQL语句快速实现简单的MapReduce统计，不必开发专门的MapReduce应用，十分适合数据仓库的统计分析
+hive安装:
+在hadoop伪集群模式安装成功条件下才能安装hive，一定要确保hadoop是启动好的,本次把hive服务端安装在和hdfs namenode节点上
+hive的安装基本操作都是在hdfs用户下
+]# tar -zxvf /root/apache-hive-2.3.2-bin.tar.gz  -C /usr/local/
+]# mv apache-hive-2.3.2-bin hive
+]# chown -R hdfs:hadoop hive
+]# vi  /etc/profile.d/hive.sh
+export HIVE_HOME=/usr/local/hive
+export PATH=$HIVE_HOME/bin/:$PATH
+]# source   /etc/profile.d/hive.sh
+]# cd /usr/local/hive/conf
+]# cp hive-env.sh.template hive-env.sh
+]# cp hive-default.xml.template hive-site.xml
+]# cp hive-log4j2.properties.template hive-log4j2.properties
+]# cp hive-exec-log4j2.properties.template hive-exec-log4j2.properties
+]# vi hive-env.sh
+export JAVA_HOME=/usr/    ##Java路径，即使java—home已经存在，这里也还是要添加
+export HADOOP_HOME=/usr/local/hadoop   ##Hadoop安装路径
+export HIVE_HOME=/usr/local/hive    ##Hive安装路径
+export HIVE_CONF_DIR=/usr/local/hive/conf    ##Hive配置文件路径
+如下命令要切换到hdfs用户
+hdfs]$ hdfs dfs -mkdir -p /user/hive/warehouse
+hdfs]$ hdfs dfs -mkdir -p /user/hive/tmp
+hdfs]$ hdfs dfs -mkdir -p /user/hive/log
+hdfs]$ hdfs dfs -chmod -R 777 /user/hive/warehouse
+hdfs]$ hdfs dfs -chmod -R 777 /user/hive/tmp
+hdfs]$ hdfs dfs -chmod -R 777  /user/hive/log
+]$ hdfs dfs -ls -R /   验证权限是否ok
+drwxrwxrwx   - hdfs supergroup          0 2018-03-19 17:35 /user/hive/log
+drwxrwxrwx   - hdfs supergroup          0 2018-03-19 17:51 /user/hive/tmp
+drwxrwxrwx   - hdfs supergroup          0 2018-03-19 18:03 /user/hive/tmp/hdfs
+drwxrwxrwx   - hdfs supergroup          0 2018-03-19 17:34 /user/hive/warehouse
+]# vi hive-site.xml 
+  <property>
+    <name>hive.exec.scratchdir</name>
+    <value>/user/hive/tmp</value>
+    <description>HDFS root scratch dir for Hive jobs which gets created with write all (733) permission</description>  
+  </property>
+  <property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>/user/hive/warehouse</value>
+    <description>location of default database for the warehouse</description>
+  </property>
+  <property>
+    <name>hive.querylog.location</name>
+    <value>/user/hive/log</value>
+    <description>Location of Hive run time structured log file</description>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:mysql://localhost:3306/hive?createDatabaseIfNotExist=true&amp;characterEncoding=UTF-8&amp;useSSL=false</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>com.mysql.jdbc.Driver</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionUserName</name>
+    <value>hive</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionPassword</name>
+    <value>hive</value>
+  </property>
+  <property>
+    <name>hive.metastore.uris</name>
+    <value>thrift://0.0.0.0:9083</value>
+    <description>Thrift URI for the remote metastore. Used by metastore client to connect to remote metastore.</description>
+  </property>
+]# sed -i 's@${system:java.io.tmpdir}@/tmp@g' hive-site.xml
+]# sed -i 's@${system:user.name}@${user.name}@g' hive-site.xml
+MariaDB [(none)]> create database hive;
+MariaDB [(none)]> GRANT ALL ON hive.* TO 'hive'@'localhost' IDENTIFIED BY 'hive';  退出mysql验证是否可以登录
+MariaDB [(none)]> GRANT ALL ON hive.* TO 'hive'@'%' IDENTIFIED BY 'hive';          退出mysql验证是否可以登录
+MariaDB [(none)]> flush privileges;
+]# cp mysql-connector-java-5.1.46/mysql-connector-java-5.1.46-bin.jar  /usr/local/hive/lib/
+hdfs]$ cd /usr/local/hive/bin
+hdfs]$ ./schematool -dbType mysql -initSchema  必须要有上面的mysql-connector-java-5.1.46-bin.jar才能初始化成功
+Starting metastore schema initialization to 2.3.0  要确保有初始化成功的信息，查看hive里面有很多表出现
+Initialization script hive-schema-2.3.0.mysql.sql
+Initialization script completed
+]$ nohup hive --service metastore  &>log   &  在后面导入表时，必须要用到metastore服务，所以必须要先启动，默认监听端口是9083
+[1] 21987
+[hdfs@localhost ~]$ jps
+21987 RunJar  查看21987进程是否存在
+8549 SecondaryNameNode
+8598 DataNode
+8456 NameNode
+22041 Jps
+]# netstat -tunlp|grep 9083 查看端口是否监听
+]$ hive   进入hive的交互模式
+Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. spark, tez) or using Hive 1.X releases.
+hive> show databases;  验证hive是否可以正常使用,第一次时间可能有点长
+OK
+default
+Time taken: 9.932 seconds, Fetched: 1 row(s)
+hive> quit;
+至此，hive安装完成,但是没有实现远程登录hive，目前只能实现本地登录
+
+1)如果文件数据是纯文本，可以使用STORED AS TEXTFILE。如果数据需要压缩，使用STORED AS SEQUENCE
+2)有分区的表可以在创建的时候使用PARTITIONED BY语句。一个表可以拥有一个或者多个分区，每一个分区单独存在一个目录下。而且表和分区都可以对某个列进行CLUSTERED BY操作，
+将若干个列放入一个桶bucket中。也可以利用SORT BY对数据进行排序。这样可以为特定应用提高性能
+
+CREATE [EXTERNAL] TABLE [IF NOT EXISTS] table_name
+  [(col_name data_type [COMMENT col_comment], ...)]
+  [COMMENT table_comment]
+  [PARTITIONED BY (col_name data_type [COMMENT col_comment], ...)]
+  [CLUSTERED BY (col_name, col_name, ...) [SORTED BY (col_name [ASC|DESC], ...)] INTO num_buckets BUCKETS]
+  [ [ROW FORMAT row_format] [STORED AS file_format]|STORED BY 'storage.handler.class.name' [ WITH SERDEPROPERTIES (...) ] ]
+  [LOCATION hdfs_path]
+  [TBLPROPERTIES (property_name=property_value, ...)]  [AS select_statement]  CREATE [EXTERNAL] TABLE [IF NOT EXISTS] table_name
+  LIKE existing_table_name
+  [LOCATION hdfs_path]
+
+hive的基本操作
+]# vi /root/test  先事先准备好这个文件，注意是按tab键，不是空格
+1	a
+2	b
+3	c
+hive> CREATE TABLE IF NOT EXISTS t_hive(a int, b int, c int) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' lines terminated by '\n'; 字段之间是tab键分割，行之间是断行
+OK
+Time taken: 6.08 seconds
+hive> show tables;
+OK
+t_hive
+hive> ALTER TABLE t_hive ADD COLUMNS (new_col String);
+hive> describe t_hive;
+OK
+a                   	int
+b                   	int
+c                   	int
+new_col             	string
+hive> ALTER TABLE t_hive RENAME TO t_hadoop;
+OK
+hive> CREATE TABLE t1(id int, name string) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t';
+OK
+hive> LOAD DATA LOCAL INPATH '/root/test' [ OVERWRITE ] INTO TABLE t1;  OVERWRITE表示覆盖，没有就表示最加
+Loading data to table default.t1
+OK
+Time taken: 0.887 seconds
+hive> select * from t1;
+OK
+1	a
+2	b
+3	c
+Time taken: 0.305 seconds, Fetched: 3 row(s)
+内表的创建与导入数据
+]# hdfs dfs -mkdir /chenhao
+]# hdfs dfs -put /home/hdfs/test /chenhao  test内容与前面的内容一样
+]$ hdfs dfs -ls -R  /chenhao
+-rw-r--r--   1 hdfs supergroup         12 2018-03-20 07:38 /chenhao/test   注意看权限，等下也只能是hdfs用户可以导入数据
+以hdfs用户执行hive命令
+hive>  CREATE TABLE table(id int, name string) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t';
+hive> LOAD DATA INPATH '/chenhao/test' INTO TABLE table4;  此时路径对应的是hdfs里面的路径
+hive> select * from table4;
+OK
+1	a
+2	b
+3	c
+]$ hdfs dfs -ls -R  /chenhao  
+]$ hdfs dfs -ls -R  /user/hive/warehouse/chenhao.db/   
+上下两条命令对比，发现/chenhao/test已经被移到/user/hive/warehouse/chenhao.db/table4/test,/user/hive/warehouse/相当于hive的数据库根目录
+-rwxrwxrwx   1 hdfs supergroup         12 2018-03-20 07:38 /user/hive/warehouse/chenhao.db/table4/test
+hive> drop table table4;  
+]$ hdfs dfs -ls -R  /user/hive/warehouse/chenhao.db/  上下两条命令对比，删除表之后，数据库目录里面的数据也没有了
+drwxrwxrwx   - root supergroup          0 2018-03-20 07:42 /user/hive/warehouse/chenhao.db/
+内表加载数据时，会把数据文件移到新的数据库目录下面，一旦数据删除，则所有数据都没有了，注意同下面外表的区别
+EXTERNAL关键字可以让用户创建一个外部表，在建表的同时指定一个指向实际数据的路径LOCATION,Hive创建内部表时会将数据移动到数据仓库指向的路径；
+若创建外部表，仅记录数据所在的路径，不对数据的位置做任何改变。在删除表的时候，内部表的元数据和数据会被一起删除，而外部表只删除元数据，不删除数据
+
+外表+分区操作:
+$ hdfs dfs -put test  /chenhao1/test
+[hdfs@localhost ~]$ hdfs dfs -cat   /chenhao1/test
+1	a
+2	b
+3	c
+hive> create EXTERNAL  table table10(id int, content string) partitioned by (dt string) ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t';
+OK
+Time taken: 0.141 seconds
+hive> ALTER TABLE table10 [IF NOT EXISTS]  ADD PARTITION (dt='20180202');
+OK
+Time taken: 0.216 seconds
+hive> ALTER TABLE table10 [IF NOT EXISTS]  ADD PARTITION (dt='20180202') location '/chenhao1/test';  也可以在创建分区时指定数据来源
+hive> load data inpath '/chenhao1/test' into table table10 PARTITION (dt='20180202');
+Loading data to table chenhao.table10 partition (dt=20180202)
+OK
+Time taken: 0.941 seconds
+hive> select * from table10;
+OK
+1	a	20180202
+2	b	20180202
+3	c	20180202
+Time taken: 0.276 seconds, Fetched: 3 row(s)
+]$ hdfs dfs -ls -R /chenhao1/ 打开另外一个终端，原/chenhao1/test/文件被移到了/user/hive/warehouse/chenhao.db/table10/dt=20180202/test
+]$ hdfs dfs -ls -R /user/hive/warehouse/chenhao.db/  
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 22:09 /user/hive/warehouse/chenhao.db/table10
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 22:10 /user/hive/warehouse/chenhao.db/table10/dt=20180202
+-rwxrwxrwx   1 hdfs supergroup         12 2018-03-20 22:10 /user/hive/warehouse/chenhao.db/table10/dt=20180202/test
+hive> drop table table10;
+OK
+]$ hdfs dfs -ls -R /user/hive/warehouse/chenhao.db/  这就是外表与内表的区别，表被删除后，只是元数据被删除，真实数据还在hdfs文件系统上
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 22:09 /user/hive/warehouse/chenhao.db/table10
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 22:10 /user/hive/warehouse/chenhao.db/table10/dt=20180202
+-rwxrwxrwx   1 hdfs supergroup         12 2018-03-20 22:10 /user/hive/warehouse/chenhao.db/table10/dt=20180202/test
+]$ hdfs dfs -rm  -R /user/hive/warehouse/chenhao.db/table10/dt=20180202  手动把dt=20180202这个目录删除掉，但是table10目录还在
+18/03/20 22:22:02 INFO fs.TrashPolicyDefault: Namenode trash configuration: Deletion interval = 0 minutes, Emptier interval = 0 minutes.
+Deleted /user/hive/warehouse/chenhao.db/table10/dt=20180202
+]$ hdfs dfs -ls -R /user/hive/warehouse/chenhao.db/
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 22:22 /user/hive/warehouse/chenhao.db/table10
+
+分表操作:
+hive> create table table2(id int, content string) partitioned by (dt string); 
+hive> show  create table table1;    查看表对应的hdfs路径
+hive> ALTER TABLE table2  ADD PARTITION (dt='20160808');  写成dt='2016-08-08'也是可以的
+hive> ALTER TABLE table2  ADD PARTITION (dt='20170808');
+hive> ALTER TABLE table2  ADD PARTITION (dt='20171008');
+hive> ALTER TABLE table2  ADD PARTITION (dt='20171009');
+hive> show partitions table2;  查看分区信息
+hive> alter table table2 drop partition(dt='20171008');  删除指定分区表
+Dropped the partition dt=20171008
+hive> show partitions table2;
+dt=20160808
+dt=20170808
+dt=20171009
+hive> alter table table2 drop partition(dt<='20170808'); 删除某一个范围内的分区
+Dropped the partition dt=20160808
+Dropped the partition dt=20170808
+hive> show partitions table2; 再次查看分区表
+OK
+dt=20171009
+hdfs]$ hdfs dfs -ls -R  /user/hive/warehouse  另开一个终端，可以查看到dt=20171009分区表对应的hdfs路径
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 07:05 /user/hive/warehouse/chenhao.db
+drwxrwxrwx   - hdfs supergroup          0 2018-03-20 06:20 /user/hive/warehouse/chenhao.db/table1
+drwxrwxrwx   - root supergroup          0 2018-03-20 07:15 /user/hive/warehouse/chenhao.db/table2
+drwxrwxrwx   - root supergroup          0 2018-03-20 07:12 /user/hive/warehouse/chenhao.db/table2/dt=20171009
