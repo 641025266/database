@@ -1,0 +1,2622 @@
+mysql的集群可以使用pxc，即Percona XtraDB Cluster
+mysql 创建database时最好能明确指定字符集，防止字符混乱的情况发生
+CREATE database testdb DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci
+线上典型建表语句
+CREATE TABLE `income_record` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `uid` int(11) NOT NULL,
+  `before` int(11) NOT NULL COMMENT '交易前收益',
+  `after` int(11) NOT NULL COMMENT '交易后收益',
+  `payment` int(11) NOT NULL COMMENT '交易数量',
+  `order_type` tinyint(4) NOT NULL COMMENT '交易类型(0邀请收入1好友收益2礼物10提现）',
+  `comment` varchar(100) DEFAULT NULL COMMENT '备注',
+  `extra` varchar(500) DEFAULT NULL COMMENT '额外信息',
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  `deleted` tinyint(4) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `uid` (`uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+用sql命令查看数据库大小，步骤如下：
+1、进入 information_schema 数据库（存放了其他的数据库的信息）
+use information_schema;
+2、查询所有数据的大小：
+SELECT concat(round(sum(DATA_LENGTH/1024/1024),2),’MB’) as data FROM TABLES;
+3、查看指定数据库的大小：
+比如查看数据库home的大小
+SELECT concat(round(sum(DATA_LENGTH/1024/1024),2),’MB’) as data FROM TABLES WHERE table_schema=’home';
+4、查看指定数据库的某个表的大小
+比如查看数据库home中 members 表的大小
+SELECT concat(round(sum(DATA_LENGTH/1024/1024),2),’MB’) as data FROM TABLES WHERE table_schema=’home’ AND table_name=’members';
+
+面试题：
+结构化查询处理过程是:首先翻译器翻译查询请求生成查询表达式，然后由优化器优化查询表达式，得到优化过的查询计划，最后由执行器选择最优的查询计划执行，得到查询结果。
+查询处理的主要操作包括选择操作、连接操作、投影操作、聚合函数、排序等。
+1）MySQL的主从复制原理以及流程
+   主服务器：
+        为每个slave的I/O thread启动一个dump thread，用于向slave发送binlog信息
+   从服务器：
+	I/O线程：从master请求二进制日志信息，并保存至中继日志；
+	SQL线程：从relay log中读取日志信息，在本地完成重放；
+2）MySQL中myisam与innodb的区别，至少5点
+   1>.InnoDB支持事务，而MyISAM不支持事务
+   2>.InnoDB支持行级锁，而MyISAM支持表级锁
+      即MyISAM同一个表上的读锁和写锁是互斥的，MyISAM并发读写时如果等待队列中既有读请求又有写请求，默认写请求的优先级高，即使读请求先到，
+      所以MyISAM不适合于有大量查询和修改并存的情况，那样查询进程会长时间阻塞。因为MyISAM是锁表，所以某项读操作比较耗时会使其他写进程锁死。
+   3>.InnoDB支持MVCC, 而MyISAM不支持
+   4>.InnoDB支持外键，而MyISAM不支持
+   5>.InnoDB不支持全文索引，而MyISAM支持，MyISAM的全文索引其实作用不大，因为它不支持中文分词
+   6>.InnoDB支持热备份，而MyISAM不支持
+   7>.InnoDB是聚集索引，而MyISAM是非聚集索引
+   8>.MyISAM支持GIS数据，InnoDB不支持。即MyISAM支持以下空间数据对象：Point,Line,Polygon,Surface等。
+      没有where的count(*)使用MyISAM要比InnoDB快得多。因为MyISAM内置了一个计数器，count(*)时它直接从计数器中读，而InnoDB必须扫描全表。
+      所以在InnoDB上执行count(*)时一般要伴随where，且where中要包含主键以外的索引列。为什么这里特别强调“主键以外”？
+      因为InnoDB中primary index是和raw data存放在一起的，而secondary index则是单独存放，然后有个指针指向primary key。所以只是count(*)的话使用secondary index扫描更快，
+      而primary key则主要在扫描索引同时要返回raw data时的作用较大。
+补充：innodb原理参考http://blog.sina.com.cn/s/blog_aed82f6f010188kw.html
+案例：innodb引擎的4大特性
+      插入缓冲（insert buffer),二次写(double write),自适应哈希索引,预读(read ahead)
+案例：myisam与innodb的selectcount(*)哪个更快，为什么
+      myisam更快，因为myisam内部维护了一个计数器，可以直接调取
+案例：
+MySQL中varchar与char的区别以及varchar(50)中的50代表的涵义
+  (1) varchar与char的区别
+      char是一种固定长度的类型，varchar则是一种可变长度的类型
+  (2) varchar(50)中50的涵义
+      最多存放50个字符，varchar(50)和(200)存储hello所占空间一样，但后者在排序时会消耗更多内存，因为order by col采用fixed_length计算col长度(memory引擎也一样)
+  (3) int（20）中20的涵义
+      20表示最大显示宽度为20，但仍占4字节存储，存储范围不变；
+  (4) mysql为什么这么设计
+      对大多数应用没有意义，只是规定一些工具用来显示字符的个数；int(1)和int(20)存储和计算均一样；
+4）innodb的事务与日志的实现方式
+   (1) 有多少种日志；
+       错误日志：记录出错信息，也记录一些警告信息或者正确的信息。
+       查询日志：记录所有对数据库请求的信息，不论这些请求是否得到了正确的执行。
+       慢查询日志：设置一个阈值，将运行时间超过该值的所有SQL语句都记录到慢查询的日志文件中。
+       二进制日志：记录对数据库执行更改的所有操作。
+       中继日志：
+       事务日志：
+   (2) 事物的4种隔离级别
+       读未提交(RU)
+       读已提交(RC)
+       可重复读(RR)
+       可串行化
+5）MySQL binlog的几种日志录入格式以及区别
+   5.1）Statement：每一条会修改数据的sql都会记录在binlog中。
+优点：不需要记录每一行的变化，减少了binlog日志量，节约了IO，提高性能。相比row能节约多少性能与日志量，这个取决于应用的SQL情况，
+      正常同一条记录修改或者插入row格式所产生的日志量还小于Statement产生的日志量，但是考虑到如果带条件的update操作，以及整表删除，alter表等操作，
+      ROW格式会产生大量日志，因此在考虑是否使用ROW格式日志时应该跟据应用的实际情况，其所产生的日志量会增加多少，以及带来的IO性能问题。
+缺点：由于记录的只是执行语句，为了这些语句能在slave上正确运行，因此还必须记录每条语句在执行的时候的一些相关信息，以保证所有语句能在slave和在master端执行时，
+      能获得相同的结果。另外mysql的复制,像一些特定函数功能，slave可与master上要保持一致会有很多相关问题(如sleep()函数， last_insert_id()，
+      以及user-defined functions(udf)会出现问题
+使用以下函数的语句也无法被复制：
+* LOAD_FILE()
+* UUID()
+* USER()
+* FOUND_ROWS()
+* SYSDATE() (除非启动时启用了 --sysdate-is-now 选项)
+同时在INSERT ...SELECT 会产生比 RBR 更多的行级锁
+  5.2）Row:不记录sql语句上下文相关信息，仅保存哪条记录被修改。
+优点： binlog中可以不记录执行的sql语句的上下文相关的信息，仅需要记录那一条记录被修改成什么了。所以rowlevel的日志内容会非常清楚的记录下每一行数据修改的细节。
+       而且不会出现某些特定情况下的存储过程，或function，以及trigger的调用和触发无法被正确复制的问题
+缺点:所有的执行的语句当记录到日志中的时候，都将以每行记录的修改来记录，这样可能会产生大量的日志内容,比如一条update语句，修改多条记录，则binlog中每一条修改都会有记录，
+     这样造成binlog日志量会很大，特别是当执行alter table之类的语句的时候，由于表结构修改，每条记录都发生改变，那么该表每一条记录都会记录到日志中。
+   5.3）Mixedlevel: 是以上两种level的混合使用，一般的语句修改使用statment格式保存binlog，如一些函数，statement无法完成主从复制的操作，
+        则采用row格式保存binlog,MySQL会根据执行的每一条具体的sql语句来区分对待记录的日志形式，也就是在Statement和Row之间选择一种
+        新版本的MySQL中队row level模式也被做 了优化，并不是所有的修改都会以row level来记录，像遇到表结构变更的时候就会以statement模式来记录。
+        至于update或者delete等修改数据的语句，还是会记录所有行的变更。
+6）MySQL数据库系统管理常见命令
+列出所有进程show processlist，观察所有进程,很久没有状态变化的就干掉,如果想全列出请使用show full processlist;
+mysql> show full processlist;  通过该命令可以查看到连接到mysql服务器端的客户端地址
++---------+------+--------------------+---------------+---------+------+-------+-----------------------+
+| Id      | User | Host               | db            | Command | Time | State | Info                  |
++---------+------+--------------------+---------------+---------+------+-------+-----------------------+
+| 4135620 | mall | 10.10.74.228:46773 | forum_metrics | Sleep   |  172 |       | NULL                  |
+| 4278153 | mall | 10.10.82.224:45288 | NULL          | Query   |    0 | NULL  | show full processlist |
++---------+------+--------------------+---------------+---------+------+-------+-----------------------+
+2 rows in set (0.00 sec)
+
+show open tables这条命令能够查看当前有那些表是打开的。In_use列表示有多少线程正在使用某张表，Name_locked表示表名是否被锁，这一般发生在Drop或Rename命令操作这张表时
+mysql> show open tables from funs;
++----------+------------------+--------+-------------+
+| Database | Table            | In_use | Name_locked |
++----------+------------------+--------+-------------+
+| funs     | funs             |      0 |           0 |
+| funs     | user_online_time |      0 |           0 |
++----------+------------------+--------+-------------+
+2 rows in set (0.00 sec)
+ 
+案例：
+mysql怎么优化存储
+A. 使用索引
+B. 使用explain分析查询
+C. 调整mysql内部配置
+(1)、改变索引缓冲区长度（key_buffer）；推荐设置整个系统内存的25%。
+(2)、改变表长(read_buffer_size)
+(3)、设定打开表的数目的大小(table_cache)
+(4)、查询设定一个时间限制(long_query_time)
+
+10）500台db，在最快时间之内重启
+    使用puppet，ansible
+11.1）造成query cache失效的原因主要是相应的table发生了变更
+第一个：读操作多的话看看比例，简单来说，如果是用户清单表，或者说是数据比例比较固定，比如说商品列表，是可以打开的，前提是这些库比较集中，数据库中的事务比较小。
+第二个：我们“行骗”的时候，比如说我们竞标的时候压测，把query cache打开，还是能收到qps激增的效果，当然前提是前端的连接池什么的都配置一样。
+        大部分情况下如果写入的居多，访问量并不多，那么就不要打开。例如社交网站的，10%的人产生内容，其余的90%都在消费，打开还是效果很好的，
+        但是你如果是qq消息，或者聊天，那就很要命。
+第三个：小网站或者没有高并发的无所谓，高并发下，会看到很多qcache锁等待，所以一般高并发下不建议打开query cache
+
+12）你是如何监控你们的数据库的？你们的慢日志都是怎么查询的？
+    监控的工具有很多，例如zabbix，lepus，mysqldumpslow可以查看慢查询日志
+13）如何做主从一致性校验？
+    主从一致性校验有多种工具 例如checksum、mysqldiff、pt-table-checksum等
+14）你们数据库是否支持emoji表情，如果不支持，如何操作？
+    如果是utf8字符集的话，需要升级至utf8_mb4方可支持
+15）如何维护数据库的数据字典？
+    这个大家维护的方法都不同，我一般是直接在生产库进行注释，利用工具导出成excel方便流通。
+16）表中有大字段X(例如：text类型)，且字段X不会经常更新，以读为为主，请问
+   (1)您是选择拆成子表，还是继续放一起；
+   (2)写出您这样选择的理由。
+   答：拆带来的问题：连接消耗 + 存储拆分空间；不拆可能带来的问题：查询性能；
+如果能容忍拆分带来的空间问题,拆的话最好和经常要查询的表的主键在物理结构上放置在一起分区，顺序IO,减少连接消耗,最后这是一个文本列再加上一个全文索引来尽量抵消连接消耗
+如果能容忍不拆分带来的查询性能损失的话，那么不拆就是最好的选择
+
+17）MySQL中InnoDB引擎的行锁是通过加在什么上完成的？为什么是这样子的？
+答：InnoDB是基于索引来完成行锁，比如select * from tabname  where id = 1 for update; 
+    for update应该是加了写锁，for update可以根据条件来完成行锁锁定,并且 id 是有索引键的列。如果 id 不是索引键那么InnoDB将完成表锁，并发将无从谈起
+19）如何从mysqldump产生的全库备份中只恢复某一个库、某一张表？
+    http://suifu.blog.51cto.com/9167728/1830651，没有能实现
+20）开放性问题：据说是腾讯的
+一个6亿的表a，一个3亿的表b，通过外间tid关联，你如何最快的查询出满足条件的第50000到第50200中的这200条数据记录。
+    20.1）如果A表TID是自增长,并且是连续的,B表的ID为索引
+select * from a,b where a.tid = b.id and a.tid>500000 limit 200;
+    20.2）如果A表的TID不是连续的,那么就需要使用覆盖索引.TID要么是主键,要么是辅助索引,B表ID也需要有索引。
+select * from b , (select tid from a limit 50000,200) as c where b.id = c.tid;  表示偏移5000行，然后取200行数据
+补充实列：
+       select * from students limit 1,2 (偏移1行，且只显示2行）  limit offset,count
+23）创建表名Customer,包含字段ID,Name,Age,CreateDT(编号，姓名，年龄，订购时间)
+CREATE table Customer(ID number(8) primary key,Name varchar2(20),Age number(3),CreateDT date);
+24）请写出查询2014年4月1日中午12点-13点所有订购用户信息的语句。
+select * from Customer where CreateDT between to_date('2014-04-1 12:00:00') and to_date('2014-04-1 13:00:00'); 应该写成to_date='2014-04-1 12:00:00'
+25）请写出查询每个年龄段的订购用户数量。
+select count(*) from Customer group by Age
+
+26）请写出你所熟悉的数据库创建用户和授权语句。
+grant create table,create view,create sequence,index to name;
+grant dba to name;
+
+仅创建你需要改进查询性能的索引。索引有助于检索，但是会增加插入和更新操作的执行时间。
+在主键上使用已排序的数据源进行批量数据的导入可加快数据插入的过程。否则，可能需要在其他行之间插入行以维护排序，这会导致磁盘 I/O 变高，进而影响性能，增加页的拆分。
+为了提升查询的速度，可以为WHERE字句中使用的列添加索引。此外，不要将主键索引用于太多或太长的列
+不要为不必要的列使用唯一键索引
+调整缓存区域的大小和属性，比如InnoDB缓冲池，MySQL查询缓存等，这样会通过从内存而非从硬盘获取数据而让重复的查询变得更快。
+增加InnoDB缓冲池大小可以让查询从缓冲池访问而不是通过磁盘I/O访问。通过调整系统变量 innodb_flush_method 来调整清除缓冲的指标使其达到最佳水平。
+像 innodb_buffer_pool_size、key_buffer_size、query_cache_size 等缓存和缓冲区要消耗大约 80% 的已分配内存。
+
+日常维护
+定期检查慢的查询日志并优化查询机制以有效使用缓存来减少磁盘 I/O。优化它们，以扫描最少的行数，而不是进行全表扫描。
+其他可以帮助 DBA 检查和分析性能的日志包括：错误日志、常规查询日志、二进制日志、DDL日志(元数据日志)。
+定期刷新缓存和缓冲区以降低碎片化。使用 OPTIMIZE TABLE 语句重新组织表并压缩任何可能被浪费的空间
+CREATE TABLE `t_node` ( `node_id` int(11) NOT NULL AUTO_INCREMENT, `node_name` varchar(50) NOT NULL, `p_id` int(11) NOT NULL, `ancestor_path` varchar(100) NOT NULL, 
+                      PRIMARY KEY (`node_id`)) ---创建主键的方式
+案例：
+现有一套Mysql数据库，数据量40G，应该如何对Mysql数据库进行备份和恢复？请写出三种备份方案，并标注你的最优方案。
+答案：
+1）mysqldump最常用的mysql备份工具，支持myisam或innodb引擎，备份出来的数据是一个sql文件，它不仅要含有创建表的sql语句，还要包含表中每一条数据的插入sql语句。
+   不管是备份还是恢复，效率都比较低，会锁表，如果数据量不大，使用mysqldump是很方便的。
+2）xtrabackup默认只支持innodb引擎的数据，备份的时候相当于直接把mysql datadir里面的所有文件拷贝一份，恢复也是直接把拷贝的文件放回去。
+   所以使用xtrabackup备份或者恢复速度都很快，它的变种工具innobackupex是对xtrabackup封装的perl脚本，提供了myisam表备份的能力，能进行整库和数据表备份。
+   当数据量较大时，适合使用innobackupex来备份，效率很快。所以，本题中40G数据，适合使用这个工具。
+   xtrabackup工具的特点：
+   (1)备份过程快速、可靠；
+   (2)备份过程不会打断正在执行的事务；
+   (3)能够基于压缩等功能节约磁盘空间和流量；
+   (4)自动实现备份检验；
+   (5)还原速度快；
+3）lvm+binglog
+案例：
+备份计划，mysqldump以及xtranbackup的实现原理
+   (1)备份计划：比如一周一次完全备份，一天一次增量备份
+   (2)备份恢复时间；
+这里跟机器，尤其是硬盘的速率有关系，以下列举几个仅供参考
+20G的2分钟（mysqldump）
+80G的30分钟(mysqldump)
+111G的30分钟（mysqldump)
+288G的3小时（xtra)
+3T的4小时（xtra)
+逻辑导入时间一般是备份时间的5倍以上
+   (3)xtrabackup实现原理
+在InnoDB内部会维护一个redo日志文件，我们也可以叫做事务日志文件。事务日志会存储每一个InnoDB表数据的记录修改。
+当InnoDB启动时，InnoDB会检查数据文件和事务日志，并执行两个步骤：回滚未提交的事务及同步已经提交的事务至数据文件中
+
+案例：
+现在因为访问人数太多，网站时常出现too many connection的错误，请给出解决的方案。
+Too many connections是因为连接mysql的客户端数量超过了它的最大限定值。mysql默认最大连接数为100个，而程序在打开连接后，
+并未能及时的关闭mysql的连接，造成连接数超出默认值。
+临时解决方案：在my.cnf里配置max_connections=1024 （这个数值根据业务访问量多少来决定，通常1024是足够的），更改后需要重启mysqld服务，
+若不能重启服务，也可以进入mysql中，执行set global max_connections = 1024;
+当然，最好的解决方案就是和开发人员一起找出不能正常关闭连接的问题，比如要通过查看慢查询日志分析执行慢的sql。
+21)修改mysql的最大并发连接数的方式，修改MySQL配置文件my.ini 或 my.cnf的参数max_connections，将其改为max_connections=1024，然后重启MySQL即可。
+mysql> show global variables like '%connection%';
++--------------------------+-------------------+
+| Variable_name            | Value             |
++--------------------------+-------------------+
+| character_set_connection | latin1            |
+| collation_connection     | latin1_swedish_ci |
+| max_connections          | 151               |
+| max_user_connections     | 0                 |
++--------------------------+-------------------+
+4 rows in set (0.00 sec)
+
+案例：
+socket和tcp访问mysql的区别？
+答案：socket访问是通过服务器上的一个socket文件来和mysql服务通信，速度快，但是只能在同一台服务器连接。tcp是通过网络来通信，可以在另外的机器连接。
+案例：mysql优化技巧
+(1) 硬件方面，如果有条件一定要SSD固态硬盘代替SAS机械硬盘，将RAID级别调整为RAID1+0，相对于RAID1和RAID5有更好的读写性能，毕竟数据库的压力主要来自磁盘I/O方面。
+Linux内核有一个特性，会从物理内存中划分出缓存区（系统缓存和数据缓存）来存放热数据，通过文件系统延迟写入机制，等满足条件时（如缓存区大小到达一定百分比或者执行sync命令）
+才会同步到磁盘。也就是说物理内存越大，分配缓存区越大，缓存数据越多。当然，服务器故障会丢失一定的缓存数据。建议物理内存至少富裕50%以上。
+(2)mysql数据库自身优化
+公共优化参数：
+max_connections = 151
+#同时处理最大连接数，推荐设置最大连接数是上限连接数的80%左右   
+sort_buffer_size = 2M
+#查询排序时缓冲区大小，只对order by和group by起作用，可增大此值为16M
+open_files_limit = 1024
+#打开文件数限制，如果show global status like 'open_files'查看的值等于或者大于open_files_limit值时，程序会无法连接数据库或卡死
+myisam优化参数：
+query_cache_limit = 1M  
+#查询缓存限制，只有1M以下查询结果才会被缓存，以免结果数据较大把缓存池覆盖
+query_cache_size = 16M  
+#查看缓冲区大小，用于缓存SELECT查询结果，下一次有同样SELECT查询将直接从缓存池返回结果，可适当成倍增加此值
+innodb优化参数 
+innodb_buffer_pool_size = 128M
+#索引和数据缓冲区大小，一般设置物理内存的60%-70%
+sync_binlog = #： 设定多久同步一次二进制日志文件；0表示不同步；任何正值都表示记录多少个语句后同步一次；
+innodb_flush_log_at_trx_commit = 1  此为关键参数
+0：log buffer将每秒一次地写入log file中，并且log file的flush(刷新到磁盘)操作同时进行。该模式下在事务提交的时候，不会主动触发写入磁盘的操作。
+1：每次事务提交时MySQL都会把log buffer的数据写入log file，并且flush(刷到磁盘)中去，该模式为系统默认。
+2：每次事务提交时MySQL都会把log buffer的数据写入log file，但是flush(刷到磁盘)操作并不会同时进行。该模式下，MySQL会每秒执行一次 flush(刷到磁盘)操作。
+当设置为0，该模式速度最快，但不太安全，mysqld进程的崩溃会导致上一秒钟所有事务数据的丢失。
+当设置为1，该模式是最安全的，但也是最慢的一种方式。在mysqld 服务崩溃或者服务器主机crash的情况下，binary log 只有可能丢失最多一个语句或者一个事务
+当设置为2，该模式速度较快，也比0安全。2和0的区别就是，如果mysql进程挂了，2不会丢失任何事务；但如果整个服务器挂了，会丢失上一秒钟的所有事务
+注意：把log buffer写到log file，只是把数据从innodb的内存缓冲到操作系统的缓存，只有把数据刷新到磁盘才真正实现了持久化存储
+
+innodb_log_buffer_size = 8M  
+#日志缓冲区大小，由于日志最长每秒钟刷新一次，所以一般不用超过16M
+innodb_thread_concurrency = 0
+innodb_file_per_table = ON 
+#默认是共享表空间，共享表空间idbdata文件不断增大，影响一定的I/O性能。推荐开启独立表空间模式，每个表的索引和数据都存在自己独立的表空间中，可以实现单表在不同数据库中移动
+(3)系统内核参数优化,主要是针对timeout参数进行优化
+net.ipv4.tcp_fin_timeout = 30
+# TIME_WAIT超时时间，默认是60s
+net.ipv4.tcp_tw_reuse = 1    
+# 1表示开启复用，允许TIME_WAIT socket重新用于新的TCP连接，0表示关闭
+net.ipv4.tcp_tw_recycle = 1   
+# 1表示开启TIME_WAIT socket快速回收，0表示关闭
+net.ipv4.tcp_max_tw_buckets = 4096   
+# 系统保持TIME_WAIT socket最大数量，如果超出这个数，系统将随机清除一些TIME_WAIT并打印警告信息
+net.ipv4.tcp_max_syn_backlog = 4096
+# 进入SYN队列最大长度，加大队列长度可容纳更多的等待连接
+(4)数据库架构扩展,包括使用缓存比如memcached、redis，主从复制与读写分离，分库分表
+(5)性能相关指标
+通过show status查看运行状态，其中有几个值帮可以我们计算出QPS和TPS，
+Uptime：服务器已经运行的实际，单位秒
+Questions：已经发送给数据库查询数
+Com_select：查询次数，实际操作数据库的
+Com_insert：插入次数
+Com_delete：删除次数
+Com_update：更新次数
+Com_commit：事务次数
+Com_rollback：回滚次数
+QPS = Questions / Uptime
+TPS = (Com_commit + Com_rollback) / Uptime
+
+
+案例：mysql主从复制如何解决
+1. MySQL数据库主从同步延迟原因
+答：谈到MySQL数据库主从同步延迟原理，得从mysql的数据库主从复制原理说起，mysql的主从复制都是单线程的操作，主库对所有DDL和DML产生binlog，binlog是顺序写，所以效率很高，
+    slave的Slave_IO_Running线程到主库取日志，效率很比较高，下一步，问题来了，slave的Slave_SQL_Running线程将主库的DDL和DML操作在slave实施。DML和DDL的IO操作是随机的，
+    不是顺序的，成本高很多，还可能可slave上的其他查询产生lock争用，由于Slave_SQL_Running也是单线程的，所以一个DDL卡主了，需要执行10分钟，
+    那么所有之后的DDL会等待这个DDL执行完才会继续执行，这就导致了延时。有朋友会问：“主库上那个相同的DDL也需要执行10分，为什么slave会延时？”，
+    答案是master可以并发，Slave_SQL_Running线程却不可以。
+2. MySQL数据库主从同步延迟是怎么产生的。
+答：当主库的TPS并发较高时，产生的DDL数量超过slave一个sql线程所能承受的范围，那么延时就产生了，当然还有就是可能与slave的大型query语句产生了锁等待。
+3. MySQL数据库主从同步延迟解决方案
+答：最简单的减少slave同步延时的方案就是在架构上做优化，尽量让主库的DDL快速执行。还有就是主库是写，对数据安全性较高，
+    master节点sync_binlog=1，innodb_flush_log_at_trx_commit = 1
+    而slave则不需要这么高的数据安全，则sync_binlog=0，innodb_flush_log_at_trx_commit = 0来提高sql的执行效率。另外就是使用比主库更好的硬件设备作为slave。
+    核心就是提高slave的sql线程执行效率
+
+案例：如何查看mysql的当前登录用户
+select user();
+select current_user();
+
+只有事务型存储引擎才支持事务日志，事务日志包括redo log即重复执行和undo log即撤销执行--重要
+一次事务里面包含多次操作
+mysql知识补充：
+MYSQL INNDODB的REDO LOG与BINLOG从表面上看来是非常相似的。然而本质上有很大的区别：
+1）REDO LOG是在INNODB存储引擎层产生，而BINLOG是MYSQL数据库的上层产生的，并且二进制日志不仅仅针对INNODB存储引擎，
+   MYSQL数据库中的任何存储引擎对于数据库的更改都会产生二进制日志。
+2）两种日志记录的内容形式不同。MYSQL的BINLOG是逻辑日志，其记录是对应的SQL语句。而INNODB存储引擎层面的重做日志是物理日志。
+3）两种日志与记录写入磁盘的时间点不同，二进制日志只在事务提交完成后进行一次写入。而INNODB存储引擎的重做日志在事务进行中不断地被写入，
+   而且重做日志不是随事务提交的顺序进行写入的。
+4）二进制日志仅在事务提交时记录，并且对于每一个事务，仅在事务提交时记录，并且对于每一个事务，仅包含对应事务的一个日志。而对于INNODB存储引擎的重做日志，
+   由于其记录是物理操作日志，因此每个事务对应多个日志条目，并且事务的重做日志写入是并发的，并非在事务提交时写入，做其在文件中记录的顺序并非是事务开始的顺序。
+
+1、首先两者都是记录数据的改变，不同的是，binlog是记录所有数据的改变信息，而innodb的redo log只是记录所有innodb表数据的变化。
+2、binlog是记录已经提交完毕之后的sql语句，而innodb redo log是正在执行中的dml以及ddl语句
+3、binlog可以作为恢复数据使用，redo log可以作为异常down机或者介质故障后的数据恢复使用
+4、在db文件目录下，也分属于不通的日志文件中。
+
+案例:事务是如何通过日志来实现的，说得越深入越好。
+     事务日志是通过redo和innodb的存储引擎日志缓冲（Innodb log buffer）来实现的，当开始一个事务的时候，会记录该事务的lsn(log sequence number)号; 
+     当事务执行时，会往InnoDB存储引擎的日志的日志缓存里面插入事务日志；
+     当事务提交时，必须将存储引擎的日志缓冲写入磁盘（通过innodb_flush_log_at_trx_commit来控制），也就是写数据前，需要先写日志。这种方式称为“预写日志方式”
+
+总结：
+binlog 是mysqld记录全局数据结构变化的log，用于复制和恢复
+innodb redo log是innodb引擎自己记录事务过程的log
+
+- Undo + Redo事务的简化过程
+  假设有A、B两个数据，值分别为1,2.
+  A.事务开始
+  B.记录A=1到undo log
+  C.修改A=3 修改的是数据文件，此时数据文件还在内存中
+  D.记录A=3到redo log
+  E.记录B=2到undo log
+  F.修改B=4
+  G.记录B=4到redo log 以上A-G都还是停留在内存中
+  H.将undo log写到磁盘 
+  I.将redo log写入磁盘
+  J.事务提交 
+- Undo + Redo事务的特点
+  A.为了实现回滚动作，undo log必须先于Redo Log同步到磁盘中实现持久化；Undo Log 保证事务的原子性
+  B.为了保证持久性，必须在事务提交前将Redo Log同步到磁盘中持久化；Redo Log 保证事务的持久性
+  C.数据必须要晚于redo log写入持久存储
+  D.事务提交，可以理解为开始同步数据到磁盘也就是开始真正修改原始数据
+  E.事务日志（redo log和undo log）在内存中的缓冲区停留时间要尽可能的小，即要尽快的同步到磁盘，避免数据损失
+  F.有一个很重要的概念就是，事务日志（redo log和undo log），以及数据文件在修改前都要先加载到内存，然后在内存中修改，最后同步到磁盘才能实现持久
+有两种损坏情况：
+    1）假设一个事务有60个操作，在内存中已经完成了30个操作，存储引擎感觉事务比较大，依次将undo log，redo log，数据文件同步到磁盘中，
+       如果数据文件在同步到磁盘过程中系统损坏了，参照undo log做回滚操作，因为此时undo log已经实现了持久化
+    2）假设一个事务有60个操作，前面30个操作已经完成，后面30个操作也在内存中完成了，现在依次将undo log，redo log，数据文件同步到磁盘中
+       如果数据文件在同步到磁盘过程中系统损坏了，参照redo log将没有完成的操作完成，因为此时redo log已经实现了持久化
+37-1
+MariaDB or MySQL:
+	DBMS
+	RDBMS：关系型数据库管理系统
+		C/S：通过专有协议
+		关系模型：表(行，列)，二维关系
+		范式：第一范式、第二范式、第三范式；
+		关系运算：
+			选择(挑选出满足条件的行）
+			投影（挑选出满足条件的列）
+		数据库：表，索引，视图(虚表)
+			SQL: Structure Query Language
+				DDL（create,drop,show,alter)
+                                DML (insert,delete,select,update)
+案例：delete操作
+MariaDB [chenhao]> select * from person;
++---------+----------+------+-----------+
+| user_id | username | sex  | email     |
++---------+----------+------+-----------+
+|       3 | mark     | fel  | 72@qq.com |
+|       4 | jerry    | fel  | 71@qq.com |
++---------+----------+------+-----------+
+2 rows in set (0.00 sec)
+
+MariaDB [chenhao]> delete from person ;
+Query OK, 2 rows affected (0.00 sec)
+
+MariaDB [chenhao]> select * from person; 没有加帅选条件表示全部删除
+
+				编程接口：
+					存储过程（procedure，没有结果返回）
+					存储函数（function，有结果返回）
+					触发器
+					事件调度器
+					过程式编程：选择、循环
+		三层模型：
+			物理层（决定数据的存储存储形式，即如何将数据组织成一个物理文件）
+			逻辑层（描述DB存储什么样的数据，以及数据间的关系）
+			视图层（描述DB中的部分数据，比如总共有7张表，但是你只能看到3张表）
+		解决方案：
+			Oracle, Sybase, Infomix, DB2
+			MySQL, MariaDB, PostgreSQL, SQLite
+		MySQL --> 5.1 --> 5.5 --> 5.6 --> 5.7
+		MariaDB
+			插件式存储引擎，也就是自己可以选择支持的引擎
+			单进程多线程（包括连接线程和守护线程）
+		配置文件：集中式的配置，能够为mysql的各应用程序提供配置信息
+			[mysqld]
+			[mysqld_safe]
+			[mysqld_multi]
+			[server]
+			[mysql]
+			[mysqldump]
+			[client]
+                                常用参数：
+				skip_name_resolve      建议关闭主机名反解功能
+                                innodb_file_per_table  注意不要写成peer
+                                datadir
+		查找路径：/etc/my.cnf --> /etc/mysql/my.cnf --> $MYSQL_HOME/my.cnf --> --default-extra-file=/path/to/somedir/my.cnf --> ~/.my.cnf
+		安装方法：
+			os vendor: rpm
+			MySQL:
+				rpm
+				展开可用
+				源码
+
+		安装后的设定：
+				(1) 为所有root用户设定密码；
+					mysql> SET PASSWORD
+					mysql> update mysql.user SET password=PASSWORD('your_pass') WHERE cluase;
+				        mysqlamin
+                                  具体使用案例：
+                                  mysql> update mysql.user set Password=password('chenhao@') where Host='127.0.0.1' and user='root'
+				(2) 删除所有匿名用户
+					mysql> DROP USER ''@'localhost';
+				上述两步骤可运行命令mysql_secure_installation来替换
+			元数据数据库：mysql，该元数据库中有user, host，db等重要表；
+			mysql --> mysqld
+				客户端程序：
+					mysql: 交互式的CLI工具；
+					mysqldump: 备份工具，基于mysql协议向mysqld发起查询请求，并将查得的所有数据转换成insert等写操作语句保存文本文件中；
+					mysqladmin：基于mysql协议管理mysqld；
+					mysqlimport: 数据导入工具；
+				非客户端类的管理工具：
+					myisamchk, myisampack
+				如何获取程序默认使用的配置：
+                                [root@localhost ~]# /usr/libexec/mysqld  --print-defaults
+                                [root@localhost ~]#  mysql  --print-defaults
+				客户端类应用程序的可用选项：
+					-u, --user=
+					-h, --host=
+					-p, --passowrd=
+					-P, --port=
+					--protocol=
+					-S, --socket=
+					-D, --database=  可以直接连入到指定数据库吗？
+					-C, --compress
+                                        mysql -e "SQL"（连接到服务器，执行命令后返回结果）
+				mysql的使用模式：
+					交互式模式：
+						可运行命令有两类：
+							客户端命令：
+								\h, help
+							服务器端命令：
+								SQL, 需要语句结束符；
+					导入sql文件的两种模式：
+						# mysql -uUSERNAME -hHOST -pPASSWORD < /path/from/somefile.sql（命令模式下导入sql表）
+						# mysql> source /path/from/somefile.sql（交互式导入sql表，前提要把sql放在mysql用户可以读取的路径）
+				服务器端(mysqld)：工作特性有多种定义方式
+					命令行选项
+					配置文件参数
+                                        获取可用参数列表：mysqld --help --verbose  会产生很多信息
+					获取运行中的mysql进程使用各服务器参数及其值：
+						mysql> SHOW GLOBAL VARIABLES;
+						mysql> SHOW [SESSION] VARIABLES;（默认是session）
+						注意：有些参数支持运行时修改，会立即生效；
+                                                      有些参数不支持，且只能通过修改配置文件，并重启服务器程序生效；
+						      有些参数作用域是全局的，且不可改变；
+                                                      有些可以为每个用户提供单独的设置；
+					修改服务器变量的值：
+						mysql> help SET
+						全局：
+							mysql> SET GLOBAL system_var_name=value;
+							mysql> SET @@global.system_var_name=value;
+						会话：
+							mysql> SET [SESSION] system_var_name=value;
+							mysql> SET @@[session.]system_var_name=value;
+					状态变量：用于保存mysqld运行中的统计数据的变量；
+						mysql> SHOW GLOBAL STATUS;
+						mysql> SHOW [SESSION] STATUS;
+	SQL：ANSI SQL  SQL-86, SQL-89, SQL-92, SQL-99, SQL-03
+	MySQL 数据类型：
+		字符型
+		数值型
+		日期时间型
+		内建类型
+
+		字符型：
+			CHAR（不区分大小写）, BINARY(区分大小写）：定长数据类型；
+			VARCHAR, VARBINARY：变长数据类型；需要结束符；
+			TEXT对象存储：TINYTEXT, TEXT, MEDIUMTEXT, LONGTEXT
+			BLOB对象存储: TINYBLOB, BLOB, MEDIUMBLOB, LONGBLOB
+			ENUM（枚举）, SET（集合），两者都是内件类型。如sex enum("man","women")
+		数值型：
+			精确数值型：
+				整型：TINYINT, SMALLINT, MEDIUMINT, INT, BIGINT
+				十进制型：DECIMAL
+			近似数值型
+				浮点型：
+					FLOAT
+					DOUBLE
+				BIT
+		日期时间型：
+			DATE日期
+			TIME时间
+			DATETIME
+			TIMESTAMP
+			YEAR(2), YEAR(4)年
+
+案例：显示当前时间戳
+mysql> select current_timestamp();  或者select now();
++---------------------+
+| current_timestamp() |
++---------------------+
+| 2018-02-06 14:57:06 |
++---------------------+
+1 row in set (0.00 sec)
+平时比较常用的时间、字符串、时间戳之间的互相转换,下面是详细案例
+案例：时间转字符串
+mysql> select date_format(current_timestamp(), '%Y-%m-%d');
++----------------------------------------------+
+| date_format(current_timestamp(), '%Y-%m-%d') |
++----------------------------------------------+
+| 2018-02-06                                   |
++----------------------------------------------+
+1 row in set (0.00 sec)
+案例：字符串转时间
+mysql> select str_to_date('2018-02-06', '%Y-%m-%d %H');
++------------------------------------------+
+| str_to_date('2018-02-06', '%Y-%m-%d %H') |
++------------------------------------------+
+| 2018-02-06 00:00:00                      |
++------------------------------------------+
+1 row in set (0.01 sec)
+案例：时间转时间戳
+mysql> select unix_timestamp(current_timestamp());
++-------------------------------------+
+| unix_timestamp(current_timestamp()) |
++-------------------------------------+
+|                          1517901126 |
++-------------------------------------+
+1 row in set (0.00 sec)
+注意：目前小恩爱数据库里面的nts单位是ns，但是1517901126单位是s，所以转换为nts对应时间时需要*1000000000
+案例：时间戳转时间
+mysql> select from_unixtime(1517901126);
++---------------------------+
+| from_unixtime(1517901126) |
++---------------------------+
+| 2018-02-06 15:12:06       |
++---------------------------+
+1 row in set (0.00 sec)
+案例：字符串转时间戳
+mysql> select unix_timestamp('2018-02-06');
++------------------------------+
+| unix_timestamp('2018-02-06') |
++------------------------------+
+|                   1517846400 |
++------------------------------+
+1 row in set (0.00 sec)
+案例：时间戳转字符串
+mysql> select from_unixtime(1517846400,'%Y-%m-%d %H:%m:%S');
++-----------------------------------------------+
+| from_unixtime(1517846400,'%Y-%m-%d %H:%m:%S') |
++-----------------------------------------------+
+| 2018-02-06 00:02:00                           |
++-----------------------------------------------+
+1 row in set (0.00 sec)
+
+案例：把已经存在的datetime类型转换为时间戳类型
+MariaDB [chenhao]> create table stu3(name varchar(20),time datetime);
+Query OK, 0 rows affected (0.01 sec)
+MariaDB [chenhao]> insert stu3 values('mark',now());
+Query OK, 1 row affected (0.00 sec)
+MariaDB [chenhao]> insert stu3 values('jery',now());
+Query OK, 1 row affected (0.00 sec)
+MariaDB [chenhao]> select * from stu3;
++------+---------------------+
+| name | time                |
++------+---------------------+
+| mark | 2018-07-06 17:35:59 |
+| jery | 2018-07-06 17:36:04 |
++------+---------------------+
+MariaDB [chenhao]> alter table stu3  modify time varchar(30);  这个操作可以在mysql图形工具中直接修改
+MariaDB [chenhao]> update stu3 set time=unix_timestamp(time);  把字符串转换为时间戳
+Query OK, 2 rows affected (0.00 sec)
+Rows matched: 2  Changed: 2  Warnings: 0
+MariaDB [chenhao]> select * from stu3;
++------+------------+
+| name | time       |
++------+------------+
+| mark | 1530869759 |
+| jery | 1530869764 |
++------+------------+
+2 rows in set (0.00 sec)
+MariaDB [chenhao]> desc stu3;
++-------+-------------+------+-----+---------+-------+
+| Field | Type        | Null | Key | Default | Extra |
++-------+-------------+------+-----+---------+-------+
+| name  | varchar(20) | YES  |     | NULL    |       |
+| time  | varchar(30) | YES  |     | NULL    |       |
++-------+-------------+------+-----+---------+-------+
+2 rows in set (0.00 sec)
+MariaDB [chenhao]> alter table stu3  modify time bigint;  把数据类型修改为整型
+Query OK, 2 rows affected (0.01 sec)
+Records: 2  Duplicates: 0  Warnings: 0
+MariaDB [chenhao]> desc stu3;
++-------+-------------+------+-----+---------+-------+
+| Field | Type        | Null | Key | Default | Extra |
++-------+-------------+------+-----+---------+-------+
+| name  | varchar(20) | YES  |     | NULL    |       |
+| time  | bigint(20)  | YES  |     | NULL    |       |
++-------+-------------+------+-----+---------+-------+
+MariaDB [chenhao]> select * from  stu3;
++------+------------+
+| name | time       |
++------+------------+
+| mark | 1530869759 |
+| jery | 1530869764 |
++------+------------+
+2 rows in set (0.00 sec)
+
+		字符类型修饰符：（即字符的属性）
+			NOT NULL: 非空约束；
+			NULL:
+			DEFAULT 'STRING': 指明默认值,比如default null表示默认值为空
+			CHARACTER SET ''：使用的字符集；
+			COLLATION：使用的字符集排序规则
+			mysql> SHOW CHARACTER SET;
+			mysql> SHOW COLLATION;
+案例：字符集和对应的字符集排序
+mysql> show character set;
++----------+-----------------------------+---------------------+--------+
+| Charset  | Description                 | Default collation   | Maxlen |
++----------+-----------------------------+---------------------+--------+
+| big5     | Big5 Traditional Chinese    | big5_chinese_ci     |      2 |
+| dec8     | DEC West European           | dec8_swedish_ci     |      1 |
+| cp850    | DOS West European           | cp850_general_ci    |      1 |
+| hp8      | HP West European            | hp8_english_ci      |      1 |
+		整型数据修饰符：
+			NOT NULL
+			NULL
+			DEFAULT NUMBER
+			AUTO_INCREMENT:（自动增长）
+		        UNSIGNED（无符号）
+		        PRIMARY KEY|UNIQUE KEY
+			NOT NULL
+			mysql> SELECT LAST_INSERT_ID();（查看目前增加到多少数值了）
+
+整型数据修饰符具体使用案例：
+MariaDB [chenhao]> create table tb1(name varchar(20) not null primary key,id  int auto_increment unique key);
+Query OK, 0 rows affected (0.18 sec)
+MariaDB [chenhao]> insert tb1 values('obama',1);
+Query OK, 1 row affected (0.03 sec)
+MariaDB [chenhao]> insert tb1 values('jerry','');这里直接是空格，就能在前面的基础上加1
+Query OK, 1 row affected, 1 warning (0.00 sec)
+MariaDB [chenhao]> select * from tb1;
++-------+----+
+| name  | id |
++-------+----+
+| obama |  1 |
+| jerry |  2 |
++-------+----+
+补充说明：
+    auto_increment后面必须定义一个key，比如PRIMARY KEY|UNIQUE KEY，否则是语法错误
+    create table tb1(name varchar(20) not null primary key,id  int auto_increment unique key) 也可以把primary key单独写出来修改为如下形式
+    create table tb1(name varchar(20) not null ,id  int auto_increment unique key，primary key (name))
+
+		日期时间型修饰符：
+			NOT NULL
+			NULL
+			DEFAULT 
+		内建类型SET和ENUM的修饰符：
+			NOT NULL
+			NULL
+			DEFAULT
+	SQL MODE：定义mysqld对约束等的响应行为；---这有什么用呢？
+                mysql>show global variables like 'sql_mode';
+		修改方式：
+			mysql> SET GLOBAL sql_mode='MODE';
+			mysql> SET @@global.sql_mode='MODE';
+		需要修改权限；仅对修改后新创建的会话有效；对已经建立的会话无效；
+			mysql> SET SESSION sql_mode='MODE';
+			mysql> SET @@session.sql_mode='MODE';
+		常用MODE：TRADITIONAL, STRICT_TRANS_TABLES, or STRICT_ALL_TABLES
+	SQL: DDL, DML
+		DDL: 数据定义语言；
+		     CREATE, ALTER, DROP,SHOW
+		DB组件：数据库、表、索引、视图、用户、存储过程、存储函数、触发器、事件调度器等
+
+			CREATE相关的常用命令：
+			   CREATE DATABASE(常用）
+			   CREATE EVENT（常用）
+			   CREATE FUNCTION
+			   CREATE FUNCTION UDF
+			   CREATE INDEX（常用）
+			   CREATE PROCEDURE
+			   CREATE SERVER
+			   CREATE TABLE（常用）
+			   CREATE TABLESPACE
+			   CREATE TRIGGER触发器
+			   CREATE USER
+			   CREATE VIEW（常用）
+		DML：数据管理语言；
+		INSERT, DELETE, UPDATE, SELECT
+		数据库：
+			CREATE, ALTER, DROP
+				{DATABASE|SCHEMA} 
+				[IF EXISTS]
+				[IF NOT EXISTS]
+		表：二维关系
+			设计表：遵循规范；
+			定义：字段，索引
+				字段：字段名，字段数据类型，修饰符
+				约束，索引：应该创建在经常用作查询条件的字段上；
+				索引：实现级别在存储引擎；
+						分类：
+							稠密索引、稀疏索引（是否索引了每一个数据项）
+							B+索引（balance tree）、hash索引、R树索引、FULLTEXT索引
+							聚集索引、非聚集索引（索引和数据是否存储在一起）
+							简单索引、组合索引
+			创建表：CREATE TABLE
+				(1) 直接创建；
+				(2) 通过查询现存的表创建；新表会被直接插入查询而来的数据；
+				CREATE [TEMPORARY] TABLE [IF NOT EXISTS] tbl_name   select_statement [(create_definition,...)] [table_options] [partition_options]
+                                具体使用案例：此时表结构和数据都复制过来了
+                                mysql> create table tb2 select * from mysql.user;
+				(3) 通过复制现存的表的表结构创建；不复制数据；
+				CREATE [TEMPORARY] TABLE [IF NOT EXISTS] tbl_name  LIKE old_tbl_name 
+                                具体使用案例:此时只有表结构，没有表数据
+                                mysql> create table tb3  like mysql.user;
+   			查看表结构：
+                                DESC tbl_name;
+   			查看表状态信息：
+				SHOW [FULL] TABLE [{FROM | IN} db_name] [LIKE 'pattern' | WHERE expr] （like后面接匹配模式，where后面接条件表达式）
+			修改表：ALTER TABLE
+			删除表：DROP TABLE
+查看表的状态：
+   MariaDB [chenhao]> show table  status  from chenhao like  'tb1'\G; tb1必须要加引号，\G表示竖排显示students的状态信息
+*************************** 1. row ***************************
+           Name: tb1
+         Engine: InnoDB
+        Version: 10
+     Row_format: Compact
+           Rows: 2
+ Avg_row_length: 8192
+    Data_length: 16384
+Max_data_length: 0
+   Index_length: 16384
+      Data_free: 0
+ Auto_increment: 3
+    Create_time: 2017-09-09 09:40:34
+    Update_time: NULL
+     Check_time: NULL
+      Collation: latin1_swedish_ci
+       Checksum: NULL
+ Create_options: 
+        Comment: 
+1 row in set (0.00 sec)
+37-3
+MySQL基础
+	        单进程多线程（连接线程和守护线程）
+		MySQL数据文件类型：
+			数据文件、索引文件
+                        重做日志、撤消日志、二进制日志、错误日志、查询日志、慢查询日志、中继日志、事务日志（只有InnoDB引擎才支持）---重要
+
+		        视图：VIEW(视图本质是虚表）
+			创建方法：
+				CREATE  VIEW view_name [(column_list)] AS select_statement [WITH [CASCADED | LOCAL] CHECK OPTION]
+                                视图的具体操作案例：create view view1 as select name from students;
+			删除视图：
+				DROP VIEW [IF EXISTS] view_name [, view_name] ... [RESTRICT | CASCADE]
+                                注意：视图中的数据事实上存储于“基表”中，因此，其修改操作也会针对基表实现；其修改操作受基表限制；
+
+补充如下内容：
+                        1)alter table tbl_name [alter_specification]
+                         alter_specification有如下表示
+                              add col_name data_type [first|after col_name](first后面不需要跟col_name，表示直接加在最前面，after col_name表示在某字段后面）
+                              drop col_name
+                              change old_col_name new_col_name data_type [first|after col_name]
+                              modify col_name data_type [first|after col_name]
+                              change的权限比modify大,因为change可以修改col_name，其他权限都一样
+                              add primary|unique|foreign key(col1,col2....)
+                              drop primary key
+                              add  index index_name(col1,col2..)(要创建不同的index_name的index,必须要重复执行该命令)
+                              drop index index_name
+                        2)grant all on db_name.tbl_name to 'user'@'host' identified by 'password'
+                        3)show grants for 'user'@'host'
+                        4)REVOKE ALL PRIVILEGES, GRANT OPTION FROM  'user'@'host'
+	DML: 
+		INSERT, DELETE, UPDATE, SELECT
+		INSERT：
+			一次插入一行或多行数据；
+			Syntax:
+			INSERT [LOW_PRIORITY | DELAYED | HIGH_PRIORITY] [IGNORE]
+			    [INTO] tbl_name [(col_name,...)]
+			    {VALUES | VALUE} ({expr | DEFAULT},...),(...),...
+			    [ ON DUPLICATE KEY UPDATE
+			      col_name=expr
+			        [, col_name=expr] ... ]
+			INSERT tbl_name [(col1,...)] VALUES (val1,...), (val21,...)
+			Or:
+			INSERT [LOW_PRIORITY | DELAYED | HIGH_PRIORITY] [IGNORE]
+			    [INTO] tbl_name
+			    SET col_name={expr | DEFAULT}, ...
+			    [ ON DUPLICATE KEY UPDATE
+			      col_name=expr
+			        [, col_name=expr] ... ]
+			Or:
+			INSERT [LOW_PRIORITY | HIGH_PRIORITY] [IGNORE]
+			    [INTO] tbl_name [(col_name,...)]
+			    SELECT ...
+			    [ ON DUPLICATE KEY UPDATE
+			      col_name=expr
+			        [, col_name=expr] ... ]
+
+		DELETE:
+			DELETE [LOW_PRIORITY] [QUICK] [IGNORE] FROM tbl_name [WHERE where_condition] [ORDER BY ...] [LIMIT row_count]
+			注意：一定要有限制条件，否则将清空表中的所有数据；
+				限制条件：
+					WHERE
+					LIMIT
+		UPDATE：
+                UPDATE [LOW_PRIORITY] [IGNORE] table_reference SET col_name1={expr1|DEFAULT} [,col_name2={expr2|DEFAULT}] 
+                            [WHERE where_condition]
+			    [ORDER BY ...]
+			    [LIMIT row_count]
+			注意：一定要有限制条件，否则将修改所有行的指定字段；
+				限制条件：
+					WHERE
+					LIMIT
+		SELECT: 
+			Query Cache
+			查询执行路径中的组件：查询缓存、解析器、预处理器、优化器、查询执行引擎、存储引擎；
+			SELECT语句的执行流程：（重要）
+	FROM Clause --> WHERE Clause（挑选出符合条件的列） --> [GROUP BY --> HAVING Clause --> ORDER BY --> SELECT clause（挑选出符合条件的行）--> LIMIT]
+
+			单表查询：  help select;
+                                    SELECT
+                                    [ALL | DISTINCT | DISTINCTROW ]
+                                    [HIGH_PRIORITY]
+                                    [STRAIGHT_JOIN]
+                                    [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT]
+                                    [SQL_CACHE | SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS]
+                                    select_expr [, select_expr ...] [FROM table_references 
+                                    [WHERE where_condition] 
+                                    [GROUP BY {col_name | expr | position} [ASC | DESC], ... [WITH ROLLUP]]
+				    [HAVING where_condition]
+				    [ORDER BY {col_name | expr | position}[ASC | DESC], ...]
+				    [LIMIT {[offset,] row_count | row_count OFFSET offset}]
+				    [FOR UPDATE | LOCK IN SHARE MODE]
+
+				  	DISTINCT: 数据去重；ditinct表示清楚的，明显的意思
+				  	SQL_CACHE: 显式指定存储查询结果于缓存之中；
+				  	SQL_NO_CACHE: 显式查询结果不予缓存；
+				  	query_cache_type的值为'ON'时，查询缓存功能打开；
+				  		SELECT的结果符合缓存条件即会缓存，否则，不予缓存；
+				  		显式指定SQL_NO_CACHE，不予缓存；
+				  	query_cache_type的值为'DEMAND'时，查询缓存功能按需进行；
+				  		显式指定SQL_CACHE的SELECT语句才会缓存；其它均不予缓存；
+
+				字段显示可以使用别名：
+					col1 AS alias1, col2 AS alias2, ...
+				WHERE子句：指明过滤条件以实现“选择”的功能：
+					过滤条件：布尔型表达式；
+					算术操作符：+, -, *, /, %
+					比较操作符：=, !=, <>, <=>, >, >=, <, <=
+						BETWEEN min_num AND max_num 测试下
+						IN (element1, element2, ...)
+						IS NULL
+						IS NOT NULL
+						LIKE: 
+							%: 任意长度的任意字符；
+							_：任意单个字符；
+						RLIKE：
+						REGEXP：匹配字符串可用正则表达式书写模式；
+					逻辑操作符：
+						NOT
+						AND
+						OR
+						XOR
+				GROUP：根据指定的条件把查询结果进行“分组”以用于做“聚合”运算：
+					avg(), max(), min(), count(), sum()--这是函数
+                                        HAVING: 对分组聚合运算后的结果指定过滤条件；(一般配合group by使用）
+案例：表中有横线时需要加``才可以显示
+MariaDB [timelines_archive_tokuDB]> select  id from `messages_2011-09-14`;
++-----------+
+| id        |
++-----------+
+| 184610339 |
+| 184610340 |
+| 184610341 |
+| 184610342 |
+| 184610343 |
+| 184610344 |
++-----------+
+6 rows in set (0.00 sec)
+count表计算id有多少行
+MariaDB [timelines_archive_tokuDB]> select  count(id)  from `messages_2011-09-14`;
++-----------+
+| count(id) |
++-----------+
+|         6 |
++-----------+
+1 row in set (0.00 sec)
+sum是把id对应的值加起来
+MariaDB [timelines_archive_tokuDB]> select  sum(id)  from `messages_2011-09-14`;
++------------+
+| sum(id)    |
++------------+
+| 1107662049 |
++------------+
+1 row in set (0.00 sec)
+                                补充实列：
+                                        1）select count(name) from students group by age;(以年龄做为分组） count函数表示计算
+                                        2) select count(name) from students group by age having age=15;（以年龄做为分组，且显示出age=15的有哪几个人）
+				ORDER BY: 根据指定的字段对查询结果进行排序；
+					升序：ASC
+					降序：DESC
+				LIMIT [[offset,]row_count]：对查询的结果进行输出行数数量限制；
+补充实列：
+       select * from students limit 1,2 (偏移1行，且只显示2行）
+
+				练习：导入hellodb.sql生成数据库
+				(1) 在students表中，查询年龄大于25岁，且为男性的同学的名字和年龄；
+                                      select name,age  from students where age>25 and sex="man";
+				(2) 以ClassID为分组依据，显示每组的平均年龄；
+                                      select avg(age) from students group by classid
+				(3) 显示第2题中平均年龄大于30的分组及平均年龄；
+                                      select classid, avg(age) as a1 from students  group by classid having a1>=30;
+				(4) 显示以L开头的名字的同学的信息；
+                                      select * from students where like "L%';
+				(5) 显示TeacherID非空的同学的相关信息；
+                                      select * from students where TeacherID!=" ";
+				(6) 以年龄排序后，显示年龄最大的前10位同学的信息；
+                                      select * from students order by age desc limit 10;
+				(7) 查询年龄大于等于20岁，小于等于25岁的同学的信息；用三种方法；
+                                       select * from students where age between 20 and 25;		
+                                       select * from students where age>=20 and age<=25;
+			多表查询：
+				交叉连接：笛卡尔乘积；
+				内连接：
+					等值连接：让表之间的字段以“等值”建立连接关系，具体使用如下
+					不等值连接
+					自然连接
+					自连接
+等值连接案例:
+MariaDB [chenhao]> create table students(name varchar(20),tid int);
+MariaDB [chenhao]> create table teachers(name varchar(20),tid int);
+MariaDB [chenhao]> insert  students value('jerry',1);
+MariaDB [chenhao]> insert  students value('mark',2);
+MariaDB [chenhao]> insert  students value('tom',2);
+MariaDB [chenhao]> select * from students;
++-------+------+
+| name  | tid  |
++-------+------+
+| jerry |    1 |
+| mark  |    2 |
+| tom   |    2 |
++-------+------+
+MariaDB [chenhao]> insert  teachers  value('obam',2);
+MariaDB [chenhao]> insert  teachers  value('yang',3);
+MariaDB [chenhao]> select * from teachers;
++------+------+
+| name | tid  |
++------+------+
+| obam |    2 |
+| yang |    3 |
++------+------+
+MariaDB [chenhao]> select students.name,students.tid,teachers.name from students,teachers where students.tid=teachers.tid;
++------+------+------+
+| name | tid  | name |
++------+------+------+
+| mark |    2 | obam |
+| tom  |    2 | obam |
++------+------+------+
+
+                                外连接：（少用）
+					左外连接：（左边每一项都出现）
+						FROM tb1 LEFT JOIN tb2 ON tb1.col=tb2.col
+					右外连接（右边每一项都出现）
+						FROM tb1 RIGHT JOIN tb2 ON tb1.col=tb2.col
+			子查询：在查询语句嵌套着查询语句(常用） 
+				基于某语句的查询结果再次进行的查询
+				用在WHERE子句中的子查询：
+					(1) 用于比较表达式中的子查询；子查询仅能返回单个值；
+					      SELECT Name,Age FROM students WHERE Age>(SELECT avg(Age) FROM students);
+					(2) 用于IN中的子查询：子查询应该单键查询并返回一个或多个值从构成列表；
+						SELECT Name,Age FROM students WHERE Age IN (SELECT Age FROM teachers);
+					(3) 用于EXISTS；
+				用于FROM子句中的子查询；
+					使用格式：SELECT tb_alias.col1,... FROM (SELECT clause) AS tb_alias WHERE Clause; 
+		      具体使用案例：
+		      SELECT s.aage,s.ClassID FROM (SELECT avg(Age) AS aage,ClassID FROM students WHERE ClassID IS NOT NULL GROUP BY ClassID) AS s WHERE s.aage>30;
+                      语句(SELECT avg(Age) AS aage,ClassID FROM students WHERE ClassID IS NOT NULL GROUP BY ClassID)的查询结果被当成了表s。仔细看
+
+		      联合查询：UNION   多表查询同联合查询的区别
+				SELECT Name,Age FROM students UNION SELECT Name,Age FROM teachers;
+
+			练习：导入hellodb.sql，以下操作在students表上执行
+				1、以ClassID分组，显示每班的同学的人数；
+                                    select count(name),classid from students group classid;
+				2、以Gender分组，显示其年龄之和；
+                                    select count(age) from students group by gender
+				3、以ClassID分组，显示其平均年龄大于25的班级；
+                                    select s.a1,classid from (select avg(age) as a1 from students  group classid) as s where s.a1>25;
+				4、以Gender分组，显示各组中年龄大于25的学员的年龄之和；
+                                    select s.gender count(s.age) from  (select gender,age  from students where age>25 group by gender) as s 
+			练习：导入hellodb.sql，完成以下题目：
+				1、显示前5位同学的姓名、课程及成绩；
+				2、显示其成绩高于80的同学的名称及课程；
+				3、求前8位同学每位同学自己两门课的平均成绩，并按降序排列；
+				4、显示每门课程课程名称及学习了这门课的同学的个数；
+
+			思考：
+				1、如何显示其年龄大于平均年龄的同学的名字？
+				2、如何显示其学习的课程为第1、2，4或第7门课的同学的名字？
+				3、如何显示其成员数最少为3个的班级的同学中年龄大于同班同学平均年龄的同学？
+				4、统计各班级中年龄大于全校同学平均年龄的同学。	
+
+回顾：DDL, DML 索引
+MySQL存储引擎：
+     mariadb-server-5.5.52-1.el7.x86_64默认的是InnoDB引擎
+     mysql-server-5.1.73-8.el6_8.x86_64默认的是MyISAM引擎
+     show engines查看默认的引擎和其他支持的引擎
+     如果想修改存储引擎做如下操作：
+     mysql> show global variables like '%engine%';
++---------------------------+--------+
+| Variable_name             | Value  |
++---------------------------+--------+
+| engine_condition_pushdown | ON     |
+| storage_engine            | MyISAM |
++---------------------------+--------+
+2 rows in set (0.00 sec)
+     mysql> set global  storage_engine=InnoDB;全局参数，下次会话开始生效，对本次会话不生效，但是不能重启服务
+     mysql> set storage_engine=InnoDB;局部参数，对本次会话立刻生效，但是不能重启服务
+	InnoDB：
+		InnoDB是事务型存储引擎，适合处理大量的短期事务；
+		数据存储于“表空间(table space)”中；
+			(1) 所有InnoDB表的数据和索引放置于同一个表空间中；
+				表空间文件：datadir定义的目录下
+				数据文件：ibddata1, ibddata2, ...
+			(2) 每张InnoDB表单独使用一个表空间存储表的数据和索引；
+				innodb_file_per_table=ON
+				数据文件(存储数据和索引)：tbl_name.ibd,
+                              （因为使用了聚集索引，所以存储数据和索引在同一个文件里面；在对应得数据库目录下查看） 
+				表格式定义：tbl_name.frm(即表结构），在对应得数据库目录下查看
+		基于MVCC来支持高并发，支持所有的四个隔离级别，默认级别为REPEATABLE READ; 间隙锁防止幻读；
+		使用聚集索引（即数据和索引放在一起）
+		支持“自适应hash索引”
+		锁粒度：行级锁
+		MariaDB (XtraDB (percona))
+                percona-server类似mysql-server
+                innodb--XtarDB
+          innodb特性总结：
+		数据存储：表空间
+		并发：间隙锁，MVCC(Multi-Version Concurrent Control，即多版本并发控制,主要用在repeatable read事务隔离级别)
+		索引：聚集索引、辅助索引
+		性能：预读操作、自适应hash、插入缓存区
+		备份：支持热备(xtrabackup)
+
+	 MyISAM总结：
+		支持全文索引(FULLTEXT index)、压缩、空间函数(GIS); 
+                不支持事务，且为表级锁；
+		崩溃后无法安全恢复
+                适用场景：只读（或者写较少）、表较小（可以接受长时间进行修复操作）
+	        Aria：crash-safe
+                文件：
+			tbl_name.frm: 表格式定义
+			tbl_name.MYD: 数据文件
+			tbl_name.MYI: 索引文件（数据文件和索引文件是放开的）
+		MyISAM特性：
+			加锁和并发：表级锁
+			修复：手工或自动修复、但可能丢失数据
+			索引：非聚集索引(所以数据和索引是分开存放的）
+			延迟更新索引键：
+			压缩表
+		行格式：dynamic, fixed, compressed, compact, redundent
+
+	其它的存储引擎：
+		CSV：将普通的CSV(字段通过逗号分隔)作为MySQL表使用；
+		MRG_MYISAM：将多个MyISAM表合并成为一个虚拟表；
+		BLACKHOLE：类似于/dev/null，不真正存储任何数据；
+		MEMORY：所有数据都保存于内存中，内存表；支持hash索引；表级锁；临时表
+		PERFORMANCE_SCHEMA：伪存储引擎；
+  （归档、存档）ARCHIVE：只支持SELECT和INSERT操作；支持行级锁和专用缓存区；
+		FEDERATED：用于访问其它远程MySQL服务器一个代理，它通过创建一个到远程MySQL服务器的客户端连接，并将查询传输到远程服务器执行，而后完成数据存取；
+			   在MariaDB的上实现是FederatedX
+
+		MariaDB支持的其它存储引擎：
+			OQGraph
+			SphinxSE
+			TokuDB
+			Cassandra
+			CONNECT
+			SQUENCE
+	并发控制：为了实现并发控制必须加锁
+		锁：
+			读锁：共享锁(别人可以查看，但是不可以写）
+			写锁：独占锁（别人连看也不行）
+	       锁粒度：
+			表级锁
+			行级锁
+               锁类型分类：
+			隐式锁：由存储引擎自动施加锁；（innodb支持行级锁，MyISAM支持表级锁）
+			显式锁：用户手动请求施加锁；
+		锁策略：在锁粒度及数据安全性寻求的平衡机制；
+			每种存储引擎都可以自行实现其锁策略和锁粒度；
+			MySQL在服务器级也实现了锁，表级锁；
+                用户手动请求施加锁的三种操作方式；具体验证下
+					(1) 加锁LOCK TABLES tbl_name [[AS] alias] lock_type，tbl_name [[AS] alias] lock_type..（可同时lock多张表）
+					    此处lock_type分为READ，WRITE
+                                            解锁UNLOCK TABLES 
+					(2) 加锁FLUSH TABLES tb_name[,...] [WITH READ LOCK] [FOR UPDATE]  
+                                            WITH READ LOCK 表示读锁,共享锁
+                                            FOR UPDATE 表示写锁，排他锁
+                                            解锁UNLOCK TABLES
+					(3) SELECT clause [FOR UPDATE] [WITH READ LOACK]   SELECT clause表示正常的查询语句
+38-3 
+事务知识补充：
+    1）如果set global AUTOCOMMIT=1（默认值），然后每一个SQL语句被认为是一个完整的事务， 默认值时事务都是自动提交的，即执行SQL语句后就会马上执行 COMMIT 操作
+    2) 如果set global AUTOCOMMIT=0，即表示禁止使用当前会话的自动提交功能，在随后的一系列语句的作用就像一个事务，直到一个明确的COMMIT语句时，才完成事务的提交
+MySQL事务及隔离：
+	事务：一组原子性的SQL查询（该查询指的是广泛的查询，实际是增删查改），或者说一个独立工作单元--该定义重要
+	事务日志：
+	ACID测试：
+		A：atomicity，原子性；整个事务中的所有操作要么全部成功执行，要么全部失败后回滚；
+		C：consistency, 一致性；数据库总是从一个一致性状态转换为另一个一致性状态；
+		I：Isolation，隔离性；一个事务所做出的操作在提交之前，是不能为其它所见；隔离有多种隔离级别；(重要）
+		D：durability: 持久性；一旦事务提交，其所做的修改会永久保存于数据库中；
+	事务：
+		启动事务：START TRANSACTION   不能和start event混淆
+			...
+			...
+		结束事务：
+			(1) COMMIT：提交
+			(2) ROLLBACK: 回滚
+		注意：只有事务型存储引擎方能支持此类操作（即innodb）；
+		建议：显式请求和提交事务，而不要使用“自动提交”功能；
+			autocommit={1|0}
+                        show global variables like 'autocommit';查看autocommit的状态
+		事务支持savepoint
+			SAVEPOINT identifier  identifier是自定义的名称
+			ROLLBACK [WORK] TO [SAVEPOINT] identifier
+			RELEASE SAVEPOINT identifier
+                        如何查看有多少个savepoint呢？
+
+		事务隔离级别：--怎么理解
+			read uncommitted (读未提交,存在问题是脏读）
+			read committed (读提交，存在问题是不可重复读）
+			repeatable READ (可重读，存在问题是幻读）
+			serializable (可串行化，存在问题是加锁读）
+			tx_isolation：       服务器变量，默认为REPEATABLE-READ；可在SESSION级别进行修改；
+			SET tx_isolation=''  默认就是SESSION级别
+				READ-UNCOMMITTED
+				READ-COMMITTED
+				REPEATABLE-READ
+				SERIALIZABLE
+			MVCC: 多版本并发控制
+		死锁：两个或多个事务在同一资源相互占用，并请求锁定对方占用的资源的状态；
+		事务日志：
+			事务日志的写入类型为“追加”，因此其操作为“顺序IO”；此日志通常也被称为“预写式日志(write ahead logging)”；
+                        innodb支持事务，才有事务日志，而myisam不支持事务，所以没有事务日志
+事务日志的具体查看方式：
+MariaDB [chenhao]> show global variables like '%innodb_log%';
++---------------------------+---------+
+| Variable_name             | Value   |
++---------------------------+---------+
+| innodb_log_block_size     | 512     |
+| innodb_log_buffer_size    | 8388608 |
+| innodb_log_file_size      | 5242880 |
+| innodb_log_files_in_group | 2       |
+| innodb_log_group_home_dir | ./      |
++---------------------------+---------+
+
+38-4
+MySQL用户和权限管理
+
+	权限类别：
+		库级别
+		表级别
+		字段级别
+		管理类
+		程序类
+
+		管理类：
+			CREATE TEMPORARY TABLES
+			CREATE USER
+			FILE
+			SUPER
+			SHOW DATABASES
+			RELOAD
+			SHUTDOWN
+			REPLICATION SLAVE
+			REPLICATION CLIENT
+			LOCK TABLES
+			PROCESS
+		程序类：
+			FUNCTION
+			PROCEDURE
+			TRIGGER
+			CREATE, ALTER, DROP, EXCUTE
+		库和表级别：TABLE or DATABASE
+			ALTER
+			CREATE 
+			CREATE VIEW
+			DROP
+			INDEX
+			SHOW VIEW
+			GRANT OPTION：能够把自己获得的权限赠经其他用户一个副本；
+		数据操作：
+			SELECT
+			INSERT
+			DELETE
+			UPDATE
+		字段级别：
+			SELECT(col1,col2,...)
+			UPDATE(col1,col2,...)
+			INSERT(col1,col2,...)
+		所有有限：ALL PRIVILEGES, ALL
+		元数据数据库：mysql（这是mysql服务自己生成的一个数据库，重要）
+			授权表：db, host, user（数据库级别）
+				columns_priv, tables_priv, procs_priv, proxies_priv
+
+	用户账号：
+		'USERNAME'@'HOST'：
+			@'HOST':
+				主机名；
+				IP地址或Network; 
+				通配符：
+					%, _: 172.16.%.%
+		创建用户：CREATE USER
+			  CREATE USER 'USERNAME'@'HOST' [IDENTIFIED BY 'password']；
+			查看用户获得的授权：SHOW GRANTS FOR
+				            SHOW GRANTS FOR 'USERNAME'@'HOST'
+		用户重命名：RENAME USER
+			    RENAME USER old_user_name TO new_user_name
+                            具体使用案例：rename user 'test'@'192.168.139.%' to 'chenhao'@'192.168.139.%';
+		删除用户：DROP USER 'USERNAME'@'HOST'
+		修改密码：
+			(1) SET PASSWORD FOR
+			(2) UPDATE mysql.user SET password=PASSWORD('your_password') WHERE clause;
+			(3) mysqladmin password
+		            mysqladmin [OPTIONS] command command....
+				 	-u, -h, -p
+		忘记管理员密码的具体解决操作步骤：只能适用于centos6，centos7不行
+                       （1）service mysqld stop 
+			(2) vim /etc/rc.d/init.d/mysqld
+                            start() 全文定位到该位置
+                            .......
+                            $exec  --skip-grant-tables --skip-networking  --datadir="$datadir" --socket="$socketfile" \
+                            --skip-grant-tables（表示跳过授权表） --skip-networking（禁止mysql用户远程登录）
+			(3) 使用UPDATE命令修改管理员密码
+			(4) service mysqld stop 
+                       （5）再次编辑/etc/rc.d/init.d/mysqld，移除（2）中的两个选项，重启mysqld服务即可; 
+
+	授权：GRANT
+	      GRANT priv_type[,...] ON [{table|function|procedure}] db.{table|routine} TO 'USERNAME'@'HOST' [IDENTIFIED BY 'password'] [REQUIRE SSL] [WITH with_option]
+			with_option:
+			    GRANT OPTION
+			  | MAX_QUERIES_PER_HOUR count
+			  | MAX_UPDATES_PER_HOUR count
+			  | MAX_CONNECTIONS_PER_HOUR count
+			  | MAX_USER_CONNECTIONS count
+              MySQL有如下共27个权限
+              usage,select,create,create routine,create temporary tables,create view,create user,insert,alter,alter routine,update,delete,drop,show database,
+              show view,index,excute,lock tables,references,reload,replication client,replication slave,Shutdown,grant option,file,super,process
+             练习：授权test用通过任意主机连接到当前mysql服务器，但每秒最大查询次数不能超过5次，次账号的连接次数不得超过3次
+	取消授权：REVOKE
+		  REVOKE priv_type [(column_list)] [, priv_type [(column_list)]] ... ON [object_type] priv_level FROM user [, user] ...
+查询缓存：
+	如何判断是否命中：
+		通过查询语句的哈希值判断：哈希值考虑的因素包括
+			查询本身、要查询的数据库、客户端使用协议版本，...
+			查询语句任何字符上的不同，都会导致缓存不能命中；
+	哪些查询可能不会被缓存？
+		查询中包含UDF、存储函数、用户自定义变量、临时表、mysql库中系统表、或者包含列级权限的表、有着不确定值的函数(Now()); 
+	查询缓存相关的服务器变量：（同时也是优化缓存的参数）
+		query_cache_min_res_unit: 查询缓存中内存块的最小分配单位；
+			较小值会减少浪费，但会导致更频繁的内存分配操作；
+			较大值会带来浪费，会导致碎片过多；
+		query_cache_limit：能够缓存的最大查询结果；对于有着较大结果的查询语句，建议在SELECT中使用SQL_NO_CACHE
+		query_cache_size：查询缓存总共可用的内存空间；单位是字节，必须是1024的整数倍；
+		query_cache_type: ON, OFF, DEMAND
+		query_cache_wlock_invalidate：如果某表被其它的连接锁定，是否仍然可以从查询缓存中返回结果；
+                                              默认值为OFF，表示可以在表被其它连接锁定时，从查询缓存中返回结果
+                                              ON则表示，在表被其它连接锁定时，不能从查询缓存中返回结果
+	查询相关的状态变量
+		 show global status like 'Qcache%';
+		+-------------------------+----------+
+		| Variable_name           | Value    |
+		+-------------------------+----------+
+		| Qcache_free_blocks      | 1        |
+		| Qcache_free_memory      | 16759688 |
+		| Qcache_hits             | 0        |
+		| Qcache_inserts          | 0        |
+		| Qcache_lowmem_prunes    | 0        |
+		| Qcache_not_cached       | 0        |
+		| Qcache_queries_in_cache | 0        |
+		| Qcache_total_blocks     | 1        |
+		+-------------------------+----------+
+		缓存命中率的评估：Qcache_hits/(Qcache_hits+Com_select)
+                 Qcache_inserts，查询缓存中增加的查询数量
+                 Qcache_not_cached ，可以缓存但是没有缓存的查询数量
+                 Qcache_queries_in_cache，缓存中存储的查询数量
+                缓存分为：服务器变量和状态变量
+
+38-5
+索引介绍
+		    索引管理：
+			索引是按特定数据结构存储的数据；
+			索引类型：
+				聚集索引、非聚集索引：数据是否与索引存储在一起；
+				主键索引、辅助索引
+				稠密索引、稀疏索引：是否索引了每一个数据项；
+		  (balance tree)B+ TREE、HASH、R TREE
+				简单索引、组合索引
+				左前缀索引
+				覆盖索引
+			管理索引的途径：
+				创建索引：创建表时指定；CREATE INDEX
+				创建或删除索引：修改表的命令
+				删除索引：DROP INDEX
+			查看表上的索引：
+				SHOW {INDEX | INDEXES | KEYS} {FROM | IN} tbl_name  [{FROM | IN} db_name]  [WHERE expr]
+			分析索引过程EXPLAIN
+补充说明:
+PRIMARY KEY（主键索引） ALTER TABLE `table_name` ADD PRIMARY KEY ( `column` ) 
+UNIQUE(唯一索引)        ALTER TABLE `table_name` ADD UNIQUE (`column`)
+INDEX(普通索引)         ALTER TABLE `table_name` ADD INDEX index_name ( `column` ) 
+FULLTEXT(全文索引)      ALTER TABLE `table_name` ADD FULLTEXT ( `column` )
+组合索引                ALTER TABLE `table_name` ADD INDEX index_name ( `column1`, `column2`, `column3` )
+
+创建表时同时创建索引的使用案例：
+MariaDB [chenhao]> create table tb2(name varchar(10),age int not null,index nameindex (name)); 这是普通索引
+Query OK, 0 rows affected (0.04 sec)
+MariaDB [chenhao]> show indexes from tb2;
++-------+------------+-----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| Table | Non_unique | Key_name  | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment |
++-------+------------+-----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| tb2   |          1 | nameindex |            1 | name        | A         |           0 |     NULL | NULL   | YES  | BTREE      |         |               |
++-------+------------+-----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+help create table来查看创建表时同时创建索引的具体帮助
+
+线上实际操作案例：当时情况是，表数据110w+，选择是凌晨低峰期执行
+mysql> alter table `user_log` add index `idx_regist_ts`(`regist_ts`);
+Query OK, 0 rows affected (2.11 sec)   执行之前要判断下预计执行时间
+Records: 0  Duplicates: 0  Warnings: 0
+mysql> show indexes from user_log;
++----------+------------+---------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| Table    | Non_unique | Key_name      | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment |
++----------+------------+---------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+| user_log |          0 | PRIMARY       |            1 | id          | A         |     1132207 |     NULL | NULL   |      | BTREE      |         |               |
+| user_log |          0 | uid           |            1 | uid         | A         |     1140708 |     NULL | NULL   |      | BTREE      |         |               |
+| user_log |          1 | idx_uuid      |            1 | uuid        | A         |      961675 |     NULL | NULL   | YES  | BTREE      |         |               |
+| user_log |          1 | idx_regist_ts |            1 | regist_ts   | A         |     1015303 |     NULL | NULL   |      | BTREE      |         |               |
++----------+------------+---------------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+4 rows in set (0.00 sec)
+
+MySQL中的索引：
+	基本法则：索引应该构建在被用作查询条件的字段上,即构建在热点数据；
+	索引类型：
+	     B+ Tree索引：顺序存储，每一个叶子节点到根结点的距离是相同的；左前缀索引，适合查询范围类的数据；
+			可以使用B-Tree索引的查询类型：全键值、键值范围或键前缀查找；
+				全值匹配：精确某个值, "Jinjiao King"；
+				匹配最左前缀：只精确匹配起头部分，"Jin%"
+				匹配范围值：
+				精确匹配某一列并范围匹配另一列：
+				只访问索引的查询
+			不适合使用B-Tree索引的场景：
+				如果不从最左列开始，索引无效； (Age,Name)
+				不能跳过索引中的列；(StuID,Name,Age)
+				如果查询中某个列是为范围查询，那么其右侧的列都无法再使用索引优化查询；(StuID,Name)
+		Hash索引：基于哈希表实现，特别适用于精确匹配索引中的所有列；
+			注意：只有Memory存储引擎支持显式hash索引；
+			适用场景：
+				只支持等值比较查询，包括=, IN(), <=>; 
+			不适合使用hash索引的场景：
+				存储的非为值的顺序，因此，不适用于顺序查询；
+				不支持模糊匹配；
+		空间索引（R-Tree）：
+			MyISAM支持空间索引；
+		全文索引(FULLTEXT)：
+			在文本中查找关键词；
+		索引优点：
+			索引可以降低服务需要扫描的数据量，减少了IO次数；
+			索引可以帮助服务器避免排序和使用临时表；
+			索引可以帮助将随机I/O转为顺序I/O；
+		高性能索引策略：
+			独立使用列，尽量避免其参与运算；
+			左前缀索引：索引构建于字段的左侧的多少个字符，要通过索引选择性来评估
+			索引选择性：不重复的索引值和数据表的记录总数的比值；
+			多列索引：AND操作时更适合使用多列索引；
+			选择合适的索引列次序：将选择性最高放左侧；
+		冗余和重复索引：
+		不好的索引使用策略
+                   （name）,(name,age),不建议
+                    (age),(name,age),可以
+	通过EXPLAIN来分析索引的有效性：
+		EXPLAIN SELECT clause，该语句用来获取查询执行计划信息，用来查看查询优化器如何执行查询；
+			输出：
+				id: 当前查询语句中，每个SELECT语句的编号；
+					复杂类型的查询有三种：
+						简单子查询；
+						用于FROM中的子查询；
+						联合查询：UNION；
+                                     注意：UNION查询的分析结果会出现一外额外匿名临时表；
+				select_type：当前查询语句中，每个select子句的类型，比如简单查询和联合查询
+					简单查询为SIMPLE
+					复杂查询：
+						SUBQUERY: 简单子查询；
+						DERIVED: 用于FROM中的子查询；
+						UNION：UNION语句的第一个之后的SELECT语句；
+						UNION RESULT: 匿名临时表；
+				table：SELECT语句关联到的表；
+				type： 关联类型或访问类型，即MySQL决定如何去查询表中的行的方式；
+					ALL: 全表扫描；
+					index：根据索引的次序进行全表扫描；如果在Extra列出现“Using index”表示了使用覆盖索引，而非全表扫描；
+					range：有范围限制的根据索引实现范围扫描；扫描位置始于索引中的某一点，结束于另一点；
+					ref: 根据索引返回表中匹配某单个值的所有行；
+					eq_ref：仅返回一个行，但与需要额外与某个参考值做比较；
+					const, system: 直接返回单个行；
+				possible_keys：查询可能会用到的索引；
+				key: 查询中使用了的索引；
+				key_len: 在索引使用的字节数；
+				ref: 在利用key字段所表示的索引完成查询时所有的列或某常量值；
+				rows：MySQL估计为找所有的目标行而需要读取的行数；
+				Extra：额外信息
+					Using index：MySQL将会使用覆盖索引，以避免访问表；
+					Using where：MySQL服务器将在存储引擎检索后，再进行一次过滤；
+					Using temporary：MySQL对结果排序时会使用临时表；
+					Using filesort：对结果使用一个外部索引排序；
+39-1				
+回顾：用户和权限、缓存、字段类型的选择
+	用户: 
+		sock一般有两个位置，/var/lib/mysql/mysql.sock和/tmp/mysql.sock
+	权限：管理类权限、库、表、字段
+		GRANT, REVOKE
+	缓存：
+		query_cache（服务器变量）
+		Qcache(状态变量）
+
+MySQL日志：
+	查询日志：query log 
+	慢查询日志：查询执行时长超过指定时长的查询操作所记录日志,slow query log 
+	错误日志：log_error
+	二进制日志：binary log,有可能引起数据改变的操作
+	中继日志：relay log
+	事务日志：transaction log 
+		  ACID, 随机I/O转换为顺序I/O(索引也可以实现随机I/O转换为顺序I/O）
+	查询日志：
+		log_output = {TABLE|FILE|NONE}
+		FILE: gerenal_log
+		general_log = {ON|OFF}: 是否启用查询日志
+		general_log_file = www.log：当log_output有FILE类型时，日志信息的记录位置；
+
+	慢查询日志：(执行时长超过指定时长的查询操作）
+		SELECT @@GLOBAL.long_query_time;--- 可以使用show global variables like '%long_query_time%'替代
+		+--------------------------+
+		| @@GLOBAL.long_query_time |
+		+--------------------------+
+		|                10.000000 |
+		+--------------------------+
+		slow_query_log = {ON|OFF}：是否启用慢查询日志
+		slow_query_log = /path/to/somefile: 日志文件路径
+		log_slow_filter = admin,filesort,filesort_on_disk,full_join,full_scan,query_cache,query_cache_miss,tmp_table,tmp_table_on_disk
+		log_slow_rate_limit = 
+		log_slow_verbosity = 
+	错误日志：
+		mysqld启动和关闭过程中输出的信息；
+		mysqld运行中产生的错误信息；
+		event scheduler运行一个event时产生的日志信息；
+		在主从复制架构中的从服务器上启动从服务器线程时产生的日志信息；
+		log_error = /path/to/somefile
+		log_warnings = {ON|OFF}：是否记录警告信息于错误日志中；
+查看二进制日志中事件的两种操作方式：
+        1）交互式方式
+	mysql> SHOW {BINARY|MASTER} LOGS;查看有哪些二进制日志
+        mysql> SHOW master status;查看当前的二进制日志文件名和位置
+	mysql> SHOW BINLOG EVENTS IN 'mysql-bin.xxxxxx' [FROM pos] [LIMIT [offset,] row_count];  注意mysql-bin.xxxxxx要加引号
+	2）mysqlbinlog  [--start-position --stop-position --start-datetime --stop-datetime] /var/lib/mysql/mysql-bin.xxxxxx  一定要使用二进制文件的绝对路径 
+
+具体使用案例：
+MariaDB [chenhao]> show binlog events in 'mysql-bin.000004';
+MariaDB [chenhao]> show binlog events in 'mysql-bin.000004' from 245;
+MariaDB [chenhao]> show binlog events in 'mysql-bin.000004' from 245 limit 1,2;
+
+       二进制日志：
+                记录数据改变或潜在导致数据改变的SQL语句
+                功能就是，通过“重放”二进制日志中的事件来生产数据副本
+		日志记录格式：
+			基于“语句”记录；statement
+			基于“行”记录；row
+                       “混合” ：mixed
+		二进制日志文件的构成：
+			日志文件：mysql-bin.文件名后缀,二进制格式
+			索引文件：mysql-bin.index，文本格式
+		服务器变量：
+			log_bin = /path/to/somefile
+			binlog_format = MIXED
+			sql_log_bin = ON
+			max_binlog_size = 1073741824 二进制日志文件的单文件上限；
+			max_binlog_cache_size = 18446744073709547520
+			max_binlog_stmt_cache_size = 18446744073709547520
+			sync_binlog = #：设定多久同步一次二进制日志文件；0表示不同步；任何正值都表示记录多少个语句后同步一次；
+                mysqlbinlog:客户端命令工具，用来读取mysql-bin.文件内容
+                mysqlbinlog /var/lib/mysql/mysql-bin.000001 
+		二进制日志的格式：
+			# at 19364
+			#140829 15:50:07 server id 1  end_log_pos 19486 	Query	thread_id=13	exec_time=0	error_code=0
+			SET TIMESTAMP=1409298607/*!*/;
+			GRANT SELECT ON tdb.* TO tuser@localhost
+			/*!*/;
+			# at 19486
+			事件发生的日期和时间；(140829 15:50:07)
+			事件发生在服务器的标识（server id）
+			事件的结束位置：（end_log_pos 19486）
+			事件的类型：(Query)
+			事件发生时所在的服务器执行此事件的线程的ID：（thread_id=13）
+			语句的时间戳与将其写入二进制文件中的时间差：（exec_time=0）
+			错误代码：（error_code=0)
+			事件内容：（SET TIMESTAMP=1409298607/*!*/;
+			            GRANT SELECT ON tdb.* TO tuser@localhost）			            
+			GTID事件专属：global transaction id
+			事件所属的全局事务的GTID：（GTID 0-1-2）
+
+		二进制日志的查看命令：
+			mysqlbinlog
+				-j, --start-position=#：从指定的事件位置查看
+				    --stop-position=#：只显示到指定的事件位置
+				    --start-datetime=name
+				    --stop-datetime=name
+				      时间格式YYYY-MM-DD hh:mm:ss
+				-u
+				-h
+				-p
+	中继日志：主从架构中，从服务器保存从主服务器的二进制日志中读取到的事件存放在中继日志里面
+	事务日志：transaction log由事务型存储引擎自己管理和使用，用户无法干涉，事务日志包括（redo log:重复执行和undo log:撤销执行)
+[root@localhost ~]# ll /var/lib/mysql/
+total 21788
+drwx------ 2 mysql mysql     4096 Oct  4 04:39 chenhao
+drwx------ 2 mysql mysql     4096 Oct  4 04:01 chenhao1
+-rw-rw---- 1 mysql mysql 10485760 Oct  4 03:58 ibdata1  数据文件
+-rw-rw---- 1 mysql mysql  5242880 Oct  4 03:58 ib_logfile0 此处的ib_logfile0和ib_logfile1就是redo log
+-rw-rw---- 1 mysql mysql  5242880 Oct  4 03:58 ib_logfile1
+	练习：启用慢查询日志
+补充材料：日志相关的服务器参数详解：
+1)查询日志
+	   1.1）general_log={ON|OFF}
+		设定是否启用查询日志，默认值为取决于在启动mysqld时是否使用了--general_log选项。如若启用此项，其输出位置则由--log_output选项进行定义，
+                如果log_output的值设定为NONE，即使用启用查询日志，其也不会记录任何日志信息。作用范围为全局，可用于配置文件，属动态变量。
+	   1.2）general_log_file=FILE_NAME
+		查询日志的日志文件名称，默认为“hostname.log"。作用范围为全局，可用于配置文件，属动态变量。
+           1.3）log={YES|NO}
+		是否启用记录所有语句的日志信息于一般查询日志(general query log)中，默认通常为OFF。MySQL 5.6已经弃用此选项。
+	   1.4）sql_log_off={ON|OFF}
+		用于控制是否禁止将一般查询日志类信息记录进查询日志文件。默认为OFF，表示不禁止记录功能。用户可以在会话级别修改此变量的值，但其必须具有SUPER权限。
+                作用范围为全局和会话级别，属动态变量。
+	   1.5）log_output={TABLE|FILE|NONE}
+		定义一般查询日志和慢查询日志的保存方式，可以是TABLE、FILE、NONE，也可以是TABLE及FILE的组合(用逗号隔开)，默认为TABLE。如果组合中出现了NONE，
+                那么其它设定都将失效，同时，无论是否启用日志功能，也不会记录任何相关的日志信息。作用范围为全局级别，可用于配置文件，属动态变量。
+		 
+
+2）二进制日志：二进制日志要启用log-bin同时还要记录才有效sql_log_bin
+           2.1）expire_logs_days={0..99}
+		设定二进制日志的过期天数，超出此天数的二进制日志文件将被自动删除。默认为0，表示不启用过期自动删除功能。
+                如果启用此功能，自动删除工作通常发生在MySQL启动时或FLUSH日志时。作用范围为全局，可用于配置文件，属动态变量。
+	   2.2）binlog-format={ROW|STATEMENT|MIXED}
+		指定二进制日志的类型，默认为STATEMENT。如果设定了二进制日志的格式，却没有启用二进制日志，则MySQL启动时会产生警告日志信息并记录于错误日志中。
+                作用范围为全局或会话，可用于配置文件，且属于动态变量。
+           2.3) log-bin={YES|NO}
+		是否启用二进制日志，如果为mysqld设定了--log-bin选项，则其值为ON，否则则为OFF。其仅用于显示是否启用了二进制日志，并不反应log-bin的设定值。
+                作用范围为全局级别，属非动态变量。
+	   2.4）log_bin_trust_function_creators={TRUE|FALSE}
+		此参数仅在启用二进制日志时有效，用于控制创建存储函数时如果会导致不安全的事件记录二进制日志条件下是否禁止创建存储函数。
+                默认值为0，表示除非用户除了CREATE ROUTING或ALTER ROUTINE权限外还有SUPER权限，否则将禁止创建或修改存储函数，同时，还要求在创建函数时必需为之使用                         
+                DETERMINISTIC属性，再不然就是附带READS SQL DATA或NO SQL属性。设置其值为1时则不启用这些限制。作用范围为全局级别，可用于配置文件，属动态变量。
+           2.5）max_binlog_cache_size{4096 .. 18446744073709547520}
+		二进定日志缓存空间大小，5.5.9及以后的版本仅应用于事务缓存，其上限由max_binlog_stmt_cache_size决定。作用范围为全局级别，可用于配置文件，属动态变量。
+           2.6）max_binlog_size={4096 .. 1073741824}
+		设定二进制日志文件上限，单位为字节，最小值为4K，最大值为1G，默认为1G。某事务所产生的日志信息只能写入一个二进制日志文件，因此，
+                实际上的二进制日志文件可能大于这个指定的上限。作用范围为全局级别，可用于配置文件，属动态变量。
+           2.7）sql_log_bin={ON|OFF}
+		用于控制二进制日志信息是否记录进日志文件。默认为ON，表示启用记录功能。用户可以在会话级别修改此变量的值，但其必须具有SUPER权限。
+                作用范围为全局和会话级别，属动态变量。
+           2.8）sync_binlog=#
+		设定多久同步一次二进制日志至磁盘文件中，0表示不同步，任何正数值都表示对二进制每多少次写操作之后同步一次。
+                当autocommit的值为1时，每条语句的执行都会引起二进制日志同步，否则，每个事务的提交会引起二进制日志同步。
+
+3）慢查询日志
+	   3.1）log_slow_queries={YES|NO}
+		是否记录慢查询日志。慢查询是指查询的执行时间超出long_query_time参数所设定时长的事件。MySQL 5.6将此参数修改为了slow_query_log。
+                作用范围为全局级别，可用于配置文件，属动态变量。
+           3.2）slow_query_log={ON|OFF}
+		设定是否启用慢查询日志。0或OFF表示禁用，1或ON表示启用。日志信息的输出位置取决于log_output变量的定义，如果其值为NONE，则即便slow_query_log为ON，
+                也不会记录任何慢查询信息。作用范围为全局级别，可用于选项文件，属动态变量。
+           3.3）long_query_time=#
+		设定区别慢查询与一般查询的语句执行时间长度。这里的语句执行时长为实际的执行时间，而非在CPU上的执行时长，因此，负载较重的服务器上更容易产生慢查询。
+                其最小值为0，默认值为10，单位是秒钟。它也支持毫秒级的解析度。作用范围为全局或会话级别，可用于配置文件，属动态变量。
+	   3.4）slow_query_log_file=/PATH/TO/SOMEFILE
+		设定慢查询日志文件的名称。默认为hostname-slow.log，但可以通过--slow_query_log_file选项修改。作用范围为全局级别，可用于选项文件，属动态变量。
+           3.5）log_query_not_using_indexes={ON|OFF}
+		设定是否将没有使用索引的查询操作记录到慢查询日志。作用范围为全局级别，可用于配置文件，属动态变量。
+           3.6）log_output={TABLE|FILE|NONE}
+		定义一般查询日志和慢查询日志的保存方式，可以是TABLE、FILE、NONE，也可以是TABLE及FILE的组合(用逗号隔开)，默认为TABLE。如果组合中出现了NONE，
+                那么其它设定都将失效，同时，无论是否启用日志功能，也不会记录任何相关的日志信息。作用范围为全局级别，可用于配置文件，属动态变量。
+		
+4）中继日志
+	   4.1）max_relay_log_size={4096..1073741824}
+		设定从服务器上中继日志的体积上限，到达此限度时其会自动进行中继日志滚动。此参数值为0时，mysqld将使用max_binlog_size参数同时为二进制日志和中继日志设定
+                日志文件体积上限。作用范围为全局级别，可用于配置文件，属动态变量。
+           4.2）relay_log=file_name
+		设定中继日志的文件名称，默认为host_name-relay-bin。也可以使用绝对路径，以指定非数据目录来存储中继日志。作用范围为全局级别，可用于选项文件，属非动态变量
+           4.3）relay_log_index=file_name
+		设定中继日志的索引文件名，默认为为数据目录中的host_name-relay-bin.index。作用范围为全局级别，可用于选项文件，属非动态变量。
+	   4.4）relay-log-info-file=file_name
+		设定中继服务用于记录中继信息的文件，默认为数据目录中的relay-log.info。作用范围为全局级别，可用于选项文件，属非动态变量。
+	   4.5）relay_log_purge={ON|OFF}
+		设定对不再需要的中继日志是否自动进行清理。默认值为ON。作用范围为全局级别，可用于选项文件，属动态变量。
+	   4.6）relay_log_space_limit=#
+		设定用于存储所有中继日志文件的可用空间大小。默认为0，表示不限定。最大值取决于系统平台位数。作用范围为全局级别，可用于选项文件，属非动态变量。
+
+5）错误日志
+	   5.1）log_error=/PATH/TO/ERROR_LOG_FILENAME
+		定义错误日志文件。作用范围为全局或会话级别，可用于配置文件，属非动态变量。
+           5.2）log_warnings=#
+		设定是否将警告信息记录进错误日志。默认设定为1，表示启用；可以将其设置为0以禁用；
+                而其值为大于1的数值时表示将新发起连接时产生的“失败的连接”和“拒绝访问”类的错误信息也记录进错误日志。
+6）主从相关日志
+		 
+	   6.1）log_slave_updates
+		用于设定复制场景中的从服务器是否将从主服务器收到的更新操作记录进本机的二进制日志中。本参数设定的生效需要在从服务器上启用二进制日志功能。
+
+7）InnoDB日志相关
+	   7.1）innodb_log_buffer_size={262144 .. 4294967295}
+		设定InnoDB用于辅助完成日志文件写操作的日志缓冲区大小，单位是字节，默认为8MB。较大的事务可以借助于更大的日志缓冲区来避免在事务完成之前将日志缓冲区的数据                 
+                写入日志文件，以减少I/O操作进而提升系统性能。因此，在有着较大事务的应用场景中，建议为此变量设定一个更大的值。
+                作用范围为全局级别，可用于选项文件，属非动态变量。
+	   7.2）innodb_log_file_size={108576 .. 4294967295}
+		设定日志组中每个日志文件的大小，单位是字节，默认值是5MB。较为明智的取值范围是从1MB到缓存池体积的1/n，其中n表示日志组中日志文件的个数。
+                日志文件越大，在缓存池中需要执行的检查点刷写操作就越少，这意味着所需的I/O操作也就越少，然而这也会导致较慢的故障恢复速度。
+                作用范围为全局级别，可用于选项文件，属非动态变量	
+	   7.3）innodb_log_files_in_group={2 .. 100}
+		设定日志组中日志文件的个数。InnoDB以循环的方式使用这些日志文件。默认值为2。作用范围为全局级别，可用于选项文件，属非动态变量。
+	   7.4）innodb_log_group_home_dir=/PATH/TO/DIR
+		设定InnoDB重做日志文件的存储目录。在缺省使用InnoDB日志相关的所有变量时，其默认会在数据目录中创建两个大小为5MB的名为ib_logfile0和ib_logfile1的日志文件。                 
+                作用范围为全局级别，可用于选项文件，属非动态变量。
+
+
+慢查询日志的具体使用案例：
+[root@www ~]# mysql
+MariaDB [(none)]> set global log_slow_queries ON;
+MariaDB [(none)]> set global slow_query_log  ON;
+MariaDB [(none)]> show global variables like '%slow%';
++---------------------+--------------------------------------------------------------------------------------------------------------+
+| Variable_name       | Value                                                                                                        |
++---------------------+--------------------------------------------------------------------------------------------------------------+
+| log_slow_filter     | admin,filesort,filesort_on_disk,full_join,full_scan,query_cache,query_cache_miss,tmp_table,tmp_table_on_disk |
+| log_slow_queries    | ON                                                                                                           |
+| log_slow_rate_limit | 1                                                                                                            |
+| log_slow_verbosity  |                                                                                                              |
+| slow_launch_time    | 2                                                                                                            |
+| slow_query_log      | ON                                                                                                           |
+| slow_query_log_file | www-slow.log                                                                                                 |
++---------------------+--------------------------------------------------------------------------------------------------------------+
+7 rows in set (0.00 sec)
+MariaDB [(none)]> set global long_query_time=1;
+MariaDB [(none)]> show global  variables like '%long_query%';
++-----------------+----------+
+| Variable_name   | Value    |
++-----------------+----------+
+| long_query_time | 1.000000 |
++-----------------+----------+
+1 row in set (0.00 sec)
+MariaDB [(none)]> quit
+[root@www ~]# [root@www ~]# ll /var/lib/mysql/
+total 36908
+-rw-rw---- 1 mysql mysql    16384 Oct 22 23:04 aria_log.00000001
+-rw-rw---- 1 mysql mysql       52 Oct 22 23:04 aria_log_control
+-rw-rw---- 1 mysql mysql 27262976 Nov  7 20:44 ibdata1
+-rw-rw---- 1 mysql mysql  5242880 Nov  7 20:44 ib_logfile0
+-rw-rw---- 1 mysql mysql  5242880 Nov  7 20:44 ib_logfile1
+drwx------ 2 mysql mysql     4096 Oct  7 16:29 mysql
+srwxrwxrwx 1 mysql mysql        0 Nov  7 20:44 mysql.sock
+drwx------ 2 mysql mysql     4096 Oct  7 16:29 performance_schema
+drwx------ 2 mysql mysql        6 Oct  7 16:29 test
+-rw-rw---- 1 mysql mysql      614 Nov  7 21:15 www-slow.log  如果有hostname-slow.log文件产生，说明慢查询日志设置成功，慢查询日志可以是table或者file格式
+[root@www ~]# mysql
+MariaDB [(none)]> select sleep(2); 人为产生慢查询sql语句
+MariaDB [(none)]> select sleep(2);
+MariaDB [(none)]> quit
+[root@www ~]# mysqldumpslow  /var/lib/mysql/www-slow.log 
+Reading mysql slow query log from /var/lib/mysql/www-slow.log  使用mysqldumpslow的分析结果不会显示具体完整的sql语句,出现如下结果说明慢查询日志生效了
+Count: 2  Time=2.11s (4s)  Lock=0.00s (0s)  Rows_sent=1.0 (2), Rows_examined=0.0 (0), root[root]@localhost
+  select sleep(N)
+		
+告诉我们语句执行了2次
+最大查询时间是2.11s,总共花费时间4s
+lock时间0s
+发送给客户端最多的行数为1，累计发送给客户端的行数为2
+Rows_examined表示扫描过的行
+
+[root@www ~]# mysqldumpslow  -h 
+  -s ORDER     what to sort by (al, at, ar, ae, c, l, r, e, t), 'at' is default  如何排序
+                al: average lock time   平均锁定时间
+                ar: average rows sent   平均返回记录时间
+                at: average query time  平均查询时间（默认
+                 c: count       计数
+                 l: lock time   锁定时间
+                 r: rows sent   返回记录
+                 t: query time  查询时间
+  -t NUM       just show the top n queries 返回前面多少条的数据
+  -g PATTERN   grep: only consider stmts that include this string   后边可以写一个正则匹配模式，大小写不敏感的
+
+接下来是mysql重点部分
+39-2 
+备份和恢复
+	为什么要备份？
+		灾难恢复：硬件故障、软件故障、自然灾害、黑客攻击；误操作；
+		测试：
+	要注意的要点：
+		可容忍丢失多少数据；
+		恢复需要在多长时间内完成；
+		需要恢复什么；
+        平时多做恢复测试和恢复演练
+	备份类型：
+		部分备份：
+		       仅备份其中的一张表或多张表；
+                完整备份：
+                       完整备份就是指对某一个时间点上的所有数据或应用进行的一个完整拷贝，对数据量大的，备份时间较长，当然数据在恢复的时候快。
+                增量备份：
+                      备份自上一次备份（包括完整备份，差异备份，增量备份）之后所有变化的数据进行备份。恢复的时候只需要一次完整的备份加上完整备份后的多个增量备份进行恢复即可。
+                差异备份：
+                      备份自上一次完整备份之后所有变化的数据，恢复的时候仅需要最新一次完整备份加上差异备份即可。
+		热备份、温备份和冷备份：
+			热备份：在线备份，读写操作不受影响；
+			温备份：在线备份，读操作可继续进行，但写操作不允许；
+			冷备份：离线备份，数据库服务器离线，备份期间不能为业务提供读写服务；
+			MyISAM: 温备（不支持写操作，支持读操作）
+			InnoDB: 热备（在线支持读写操作）
+		物理备份和逻辑备份：
+			物理备份：直接复制数据文件进行的备份；
+			逻辑备份：从数据库中“导出”数据另存而进行的备份；
+                                  逻辑备份：与存储引擎无关
+	规则备份时需要考虑的因素：
+		持锁的时长
+		备份过程时长
+		备份负载
+		恢复过程时长
+	备份什么？
+		数据、额外的数据（二进制日志和InnoDB的事务日志）、代码（存储过程和存储函数、触发器、事件调度器等）、服务器配置文件
+	设计备份方案：
+		完全备份+增量备份
+	备份工具：
+		mysqldump: 逻辑备份工具，适用于所有存储引擎，温备；完全备份，部分备份；对InnoDB存储引擎支持热备；
+		cp, tar等文件系统工具：物理备份工具，适用于所有存储引擎；冷备；完全备份，部分备份；
+		lvm2的快照：几乎热备；借助于文件系统工具实现物理备份；
+		mysqlhotcopy: 几乎冷备；仅适用于MyISAM存储引擎；
+备份方案之备份工具的选择：务必要实现以下3种备份操作
+	mysqldump+binlog: mysqldump：完全备份，通过备份二进制日志实现增量备份；即实现完全备份+增量备份，服务器必须在线，因为mysqldump要通过mysql协议连接到服务器端
+	lvm2快照+binlog：几乎热备，物理备份
+	xtrabackup: 服务器必须在线，因为mysqldump要通过mysql协议连接到服务器端；对InnoDB：热备，支持完全备份和增量备份；对MyISAM引擎：温备，只支持完全备份		
+
+	逻辑备份：mysqldump, mydumper, phpMyAdmin
+		Schema（数据结构和属性）和数据存储一起、巨大的SQL语句、单个巨大的备份文件
+		mysqldump: 客户端，通过mysql协议连接至mysqld；
+			-A, --all-databases
+			-B, --databases db_name1 db_name2 ...：备份指定的数据库
+			-C, --compress：压缩传输；
+                        --skip-extended-insert 备份出来的sql文件中，一行只有一个insert....value()
+                        MyISAM, InnoDB: 温备
+				 -x, --lock-all-tables：锁定所有表
+				 -l, --lock-tables：锁定备份的表
+			InnoDB:
+			--single-transaction：启动一个大的单一事务实现备份
+                其它选项：
+                        -E, --events：备份指定库的事件调度器；
+                        -R, --routines：备份存储过程和存储函数；
+                        --triggers：备份触发器
+                        --master-data[=#]：（重要）
+                                1：记录CHANGE MASTER TO语句；此语句未被注释；
+                                2：记录为注释语句；
+                        --flush-logs, -F：（滚动日志）锁定表之后执行flush logs命令；
+                注意：二进制日志文件与数据文件不应该放置于同一磁盘，主要是为了避免二进制日志文件与数据文件同时被损坏
+		命令的语法格式：
+			mysqldump [OPTIONS] databasename [tables]：备份单个库，或库指定的一个或多个表
+			mysqldump [OPTIONS] --databases [OPTIONS] DB1 [DB2 DB3...]：备份一个或多个库（多个DB之间以空格隔开）
+			mysqldump [OPTIONS] --all-databases [OPTIONS]：备份所有库
+                实列(1)
+                    备份操作mysqldump -u root -p chenhao students >/tmp/tb1.sql 备份的是数据库中的单张表，所以恢复时需要指定数据库
+                    恢复操作mysql -u root -p --database=back </tmp/tb1.sql 
+                实列（2）
+                    备份操作mysqldump -u root -p --databases chenhao  >/tmp/chenhao.sql 备份的是单个数据库，所以恢复时不需要指定数据库
+                    恢复操作mysql -u root -p </tmp/chenhao.sql 
+                实列（2）
+                     mysqldump -u root -p chenhao students  --master-data=2 >/tmp/tb1.sql    --master-data=2意思参考下面解释
+                     mysql -e 'show master status;'>/tmp/status 记下当前的二进制文件和位置
+                      。。。。假设中间在表中做了很多操作，然后数据坏了，接下来做恢复操作
+                     恢复操作
+                     mysqlbinlog --start-position=#  /var/lib/mysql/mysql-bin.000001 >/tmp/change.sql        
+                     mysql -u root -p --database=chenhao  </tmp/tb1.sql  
+                     mysql -u root -p   </tmp/change.sql （二进制日志中记录的也是sql语句，这里不需要指定数据库）
+线上备份实际操作：
+]# mysqldump  -h store01.sql.enai.corp -u store -pg87G3UDQVC1W -B store_purchase|gzip > store_purchase.gz
+mysqldump: Got error: 1044: Access denied for user 'store'@'%' to database 'store_purchase' when using LOCK TABLES
+]# mysql -h store01.sql.enai.corp -u store -pg87G3UDQVC1W -e "show grants for 'store'@'%';"
++-------------------------------------------------------------------------------------------------------------------------------+
+| Grants for store@%                                                                                                            |
++-------------------------------------------------------------------------------------------------------------------------------+
+| GRANT SELECT, INSERT, UPDATE, CREATE ON *.* TO 'store'@'%' IDENTIFIED BY PASSWORD '*D70B6DB0675DFC4FC2D73449764E13EFC677EF91' |
++-------------------------------------------------------------------------------------------------------------------------------+
+因为mysqldump涉及到锁表，所以需要给store'@'%'增加LOCK TABLES权限才可以正常备份
+[root@u03log01 mysql_bakcup]# mysql -h store01.sql.enai.corp -u store -pg87G3UDQVC1W -e "show grants for 'store'@'%';"
++--------------------------------------------------------------------------------------------------------------------------------------------+
+| Grants for store@%                                                                                                                         |
++--------------------------------------------------------------------------------------------------------------------------------------------+
+| GRANT SELECT, INSERT, UPDATE, CREATE, LOCK TABLES ON *.* TO 'store'@'%' IDENTIFIED BY PASSWORD '*D70B6DB0675DFC4FC2D73449764E13EFC677EF91' |
++--------------------------------------------------------------------------------------------------------------------------------------------+
+
+		作业：写脚本, 用mysqldump实现对指定数据库的备份；
+                      #！/bin/bash 
+                       mysqldump -uroot -ppasswd  --databases databasename>/tmp/database.sql
+                       mysql -uroot -ppasswd </tmp/database.sql
+		       写脚本，实现利用binary logs完成增量备份；
+                       mysqlbinlog --start-position=# --master-data=2 >/tmp/change.sql  
+                       mysql -uroot -ppasswd </tmp/change.sql
+	物理备份：数据文件的时间一致性？
+		冷备：
+		几乎热备：lvm2快照
+        快照原理：做了快照后，若要对原卷做修改，先把原卷中的内容复制到快照卷中，再对原卷做修改。
+                  访问时，没有修改的部分，直接通过原卷来访问；修改的部分，通过快照来访问
+
+        lvm备份+恢复操作案例：
+                备份操作步骤：
+                1）systemctl stop mariadb.service 
+                2）mkdir /mydata(等下要把逻辑卷挂载在此目录，做为新的datadir）
+                3）fdisk  /dev/sda(做一个分区出来，做逻辑卷）
+                4）pvcreate /dev/sda#(针对/dev/sda#创建pv)
+                5）vgcreate myvg /dev/sda#
+                6）lvcreate -L 5G -n mylv myvg(-L表示大小，-n表示名字）
+                7）mke2fs -t ext4   /dev/myvg/mylv 
+                8）mount  /dev/myvg/mylv  /var/lib/mysql 
+                   chown -R mysql:mysql /var/lib/mysql 
+                9）vim /etc/my.cnf
+                       datadir = /var/lib/mysql 
+                       其他保持正常
+                10）systemctl start mariadb.service
+                11）请求锁定所有表：
+		    mysql> FLUSH TABLES WITH READ LOCK;（flush表示刷新,也可以锁定指定的表，有3种表的锁定方式，具体参考前面）
+                12）记录二进制日志文件及事件位置：
+                    mysql>flush logs（目的是滚动新日志，可做可不做）
+		    mysql -e 'SHOW MASTER STATUS；' >/tmp/file.sql 保存当前二进制日志和位置
+                13）创建快照：
+		    lvcreate -L 1G  -s -p r -n mysnap /dev/myvg/mylv(-s表示类型snapshot,-p r表示权限是只读）
+                14）释放锁：
+		    mysql> UNLOCK TABLES
+                15）现在可以在数据库做很多操作
+                恢复操作步骤:
+                16) systemctl stop mariadb.sevice
+                17）mysqlbinlog --start-position=#  /var/lib/mysql/mysql-bin.xxxx >/tmp/change.sql(二进制日志要从以前的datadir目录里面复制,很关键)  
+                18) rm -rf /var/lib/mysql/* 删除当前数据目录下的所有文件
+                19）挂载快照卷，复制数据进行备份；
+                    mount /dev/myvg/mysnap /mnt
+		20）复制数据文件和日志文件到指定路径；
+                    cp -a /mnt/*  /var/lib/mysql/
+                21）systemctl start mariadb.sevice
+                22）mysql </tmp/change.sql
+                23）查看数据库是否恢复正常
+                24）umount /mnt 恢复完成之后，卸载快照并删除快照卷；
+                    rm -f /dev/myvg/mysnap
+      mysqldump做的备份，数据还原时，会产生大量二进制日志，可以做如下操作省掉大量的二进制日志
+		mysql> SET SESSION sql_log_bin=0;（导入数据时，禁止二进制日志信息记录到二进制日志）
+		mysql> SOURCE /path/from/somefile.sql;
+		mysql> SET SESSION sql_log_bin=1;
+      Xtrabackup：
+		percona官网www.percona.com
+		innobackupex: 客户端工具, 以mysql协议连入mysqld，不支持离线备份
+			--user=
+			--password=
+		完整备份策略：完整备份 + 增量备份 + 二进制日志
+	注意：
+		1、将数据和二进制文件放置于不同的设备；二进制日志也应该周期性地备份；
+		2、将数据和备份分开存放，建议不在同一设备、同一主机、同一机房、同一地域；
+		3、每次灾难恢复后都应该立即做一次完全备份；
+		4、备份后的数据应该周期性地做还原测试；
+	从备份中恢复应该遵循的步骤：
+		1、停止MySQL服务器；
+		2、记录服务器配置和文件权限；
+		3、将备份恢复到MySQL数据目录；此步骤依赖具体的备份工具；
+		4、改变配置和文件权限；
+		5、以限制方式启动MySQL服务器：比如通过网络访问；
+			[mysqld]
+			skip-networking 
+			socket=/tmp/mysql-recovery.sock
+		6、载入额外的逻辑备份；而检查和重放二进制日志；
+		7、检查已经还原的数据；
+		8、以完全访问模式重启服务器；
+	其它的备份工具：
+		SELECT ... INTO OUTFILE ''
+		LOAD FILE 
+		mylvmbackup
+回顾：备份、恢复
+	备份方式：
+		mysqldump
+		lvm snapshot
+		xtrabackup
+	备份策略：10G
+		xtrabackup：全备+增备
+		mysqldump：全备+增备（二进制日志）
+		
+复制：
+	扩展的方式：
+		Scale up
+		Scale Out 		
+	复制：
+		向外扩展
+		二进制日志 
+		单向
+	复制的作用：--理解如下作用很关键
+		数据分布
+		负载均衡：读操作，适用于读密集型的应用，即读写分离
+		备份
+		高可用和故障切换
+		MySQL升级测试
+	主从复制：
+                主服务器：
+                        为每个slave的I/O thread启动一个dump thread，用于向slave发送binlog信息
+		从服务器：
+			I/O线程：从master请求二进制日志信息，并保存至中继日志；
+			SQL线程：从relay log中读取日志信息，在本地完成重放；
+		异步模式：async
+			1、从服务器落后于主服务器；
+			2、主从数据不一致；
+		二进制日志的格式：SET datetime = now()
+			1、基于行
+			2、基于语句
+			3、混合	
+	双主：
+	   读：负载均衡
+	   写：无法均衡
+		Perlcona-Galera Cluster
+      演示模型：主从，主主，半同步复制，复制过滤器
+      主从配置过程：
+		1、master
+			(1) 启用二进制日志；
+			(2) 设置一个在当前集群中惟一的server-id；
+			(3) 创建一个有复制权限(REPLICATION SLAVE, REPLICATION CLIENT)账号；
+                            MariaDB [(none)]> GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repluser'@'172.16.%.%' IDENTIFIED BY 'replpuser';
+					      Query OK, 0 rows affected (0.03 sec)
+			    MariaDB [(none)]> FLUSH PRIVILEGES;
+					      Query OK, 0 rows affected (0.00 sec)
+		2、slave
+			(1) 启用中继日志；
+			(2) 设置一个在当前集群中惟一的server-id；
+			(3) 使用有复制权限用户账号连接至主服务器，并启动复制线程；
+                        连接master:
+ 			change master to master_host= ,master_user=,master_password=,mster_log_file=,master_log_pos=;
+                        show slave status/G
+                        start slave;	
+		1）传统上：一主多从；
+                2）从服务器开启二进制日志功能，可以再拥有其他从服务器
+		3）也可以一从多主；	
+		服务器程序版本：最好相同；从高；
+     主从配置具体操作过程：
+            先在两个节点上确保iptables和selinux都是关闭的，非常重要！
+            master节点具体操作：
+               1)vim /etc/my.cnf,确保启动二进制日志和有一个全局唯一的server-id
+               2)systemctl start mariadb.service 
+               3)GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication'@'192.168.139.%' IDENTIFIED BY 'replication';
+               4)FLUSH PRIVILEGES;
+               5)mysql -e 'show master status;' >/tmp/file.sql (保存目前在用的二进制日志和当前位置，对slave节点中的change master to命令有用）
+            slave节点具体操作：
+             1)vim /etc/my.cnf,确保启动中继日志和设置一个在当前集群中惟一的server-id
+                 relay-log=relay-log
+                 server-id=#
+             2)systemctl start mariadb.service 
+             3)change master to master_host='192.168.139.180' ,master_user='replication',master_password='replication',master_log_file='mysql-bin.xxx',master_log_pos=#
+             4)start slave;（启动salve sql线程）
+             5)show slave status/G
+                 Slave_IO_State: Waiting for master to send event
+                  Master_Host: 192.168.139.180
+                  Master_User: replication
+                  Master_Port: 3306
+                  Connect_Retry: 60
+                  Master_Log_File: mysql-bin.000003
+                  Read_Master_Log_Pos: 818
+                  Relay_Log_File: relay-log.000002
+                  Relay_Log_Pos: 826
+                  Relay_Master_Log_File: mysql-bin.000003
+                  Slave_IO_Running: Yes(必须确保Slave_IO线程是yes状态）
+                  Slave_SQL_Running: Yes(Slave_SQL必须确保线程是yes状态）
+                  Last_IO_Errno: ......
+                  Last_IO_Error: .....
+                  如果以上两个状态没有处于yes状态，要重新检查,一般会在Last_IO_Errno提示错误信息
+             6）此时可以在master节点上做很多操作
+                 然后执行show master status;
+                 +------------------+----------+--------------+------------------+
+                 | File             | Position | Binlog_Do_DB | Binlog_Ignore_DB |
+                 +------------------+----------+--------------+------------------+
+                 | mysql-bin.000003 |      909 |              |                  |
+                 +------------------+----------+--------------+------------------+
+             7）然后在slave节点再次执行show slave status/G
+                    Master_Log_File: mysql-bin.000003
+                    Read_Master_Log_Pos: 909（确保该位置信息和主节点中的一样）
+             8）在slave节点上查看数据是否已经同步过来
+	总结：
+		master: binlog，dump thread（重要） 
+		slave: IO thread, SQL thread 
+		help change master to;(出现如下信息）
+                        option:
+			MASTER_BIND = 'interface_name'
+			| MASTER_HOST = 'host_name'     主服务器地址
+			| MASTER_USER = 'user_name'     有复制权限的用户名
+			| MASTER_PASSWORD = 'password'   用户密码
+			| MASTER_PORT = port_num         主服务器的端口
+			| MASTER_CONNECT_RETRY = interval    连接重试时间间隔
+			| MASTER_HEARTBEAT_PERIOD = interval    心跳检测时间间隔
+			| MASTER_LOG_FILE = 'master_log_name'    主服务器二进制日志文件
+			| MASTER_LOG_POS = master_log_pos          二进制日志文件中的位置
+			| RELAY_LOG_FILE = 'relay_log_name'           
+			| RELAY_LOG_POS = relay_log_pos
+			| MASTER_SSL = {0|1}
+			| MASTER_SSL_CA = 'ca_file_name'
+			| MASTER_SSL_CAPATH = 'ca_directory_name'
+			| MASTER_SSL_CERT = 'cert_file_name'
+			| MASTER_SSL_KEY = 'key_file_name'
+			| MASTER_SSL_CIPHER = 'cipher_list'
+			| MASTER_SSL_VERIFY_SERVER_CERT = {0|1}
+			| IGNORE_SERVER_IDS = (server_id_list)
+40-2
+复制架构总的注意事项：
+       1、如何限制从服务器只读？---重要
+		    方法1）MariaDB [mysql]> SET GLOBAL read_only = 1|on; 更改slave的全局服务器变量read-only为on；
+                    方法2）vim /etc/my.cnf 	
+                           [mysqld]
+		           read_only = 1
+                    注意：以上两个方法对于拥有SUPER权限用户无效；对于普通用户有效
+		    方法3）阻止所有用户执行写操作，对拥有SUPER权限用户也有效：
+		    MariaDB [mysql]> flush tables with read lock;
+	2、如何保证主从复制时的事务安全？
+                   前提：mysql对二进制日志事件数据会有缓冲; 
+                   在master节点：
+		   SET GLOBAL  sync_binlog = 1|on ,即内存中的二进制日志同步到硬盘上
+           针对innodb引擎
+           innodb_flush_logs_at_trx_commit=on,在事务提交时，把内存中与事务相关的数据同步硬盘中
+           innodb_support_xa=on，支持分布式事务，因为xa表示的就是分布式事务
+           在master节点
+           使用show 命令查看如下变量，根据需求设置
+           sync_master_info=1
+           在slave节点
+           set global skip_start_slave=on(避免从服务器把错误数据也同步过来,也就是slave节点不能一开始就启动IO线程）
+           使用show 命令查看如下变量，根据需求设置
+           sync_relay_log=1
+           sync_relay_log_info=1
+   思考问题：如果主服务器之前已经运行了很长一段时间，有了大量数据，从服务器如何操作
+   1)先在主服务器做完全备份然后在从服务器恢复，最好使用innobackupex,
+     因为xtrabackup_binlog_info日志里面有mysql服务器当前正在使用的二进制日志文件及至备份这一刻为止二进制日志事件的位置，
+     二进制日志位置对后续做主从复制很关键
+   2)change master to master_host='192.168.139.180' ,master_user='replication',master_password='replication',master_log_file='mysql-bin.xxx', master_log_pos=#;
+     对应完全备份时的主服务器二进制日志文件和pos即可
+主主：实际互为主从：
+			1、数据不一致（慎用）； 
+			2、自动增长id
+				定义一个节点使用奇数id
+					auto_increment_offset=1
+					auto_increment_increment=2
+				定义另一个节点使用偶数id
+					auto_increment_offset=2
+					auto_increment_increment=2
+			(1) 各自使用不同的server id
+			(2) 都启用binlog和relay log 
+			(3) 定义自动增长的id字段的增长方式
+			(4) 都授权有复制权限的用户账号
+			(5) 各自把对方指定为主服务器
+		        GRANT REPLICATION SLAVE,REPLICATION CLIENT ON *.* TO 'repluser'@'172.16.%.%' IDENTIFIED BY 'replpass';
+主主配置具体操作过程：
+     A节点
+       1）systemctl stop mariadb.service 
+       2) vim /etc/my.cnf 
+         relay_log=relay1_log
+         log_bin=mysql1.bin
+         server_id=1
+	 auto_increment_offset=1
+	 auto_increment_increment=2
+       3)systemctl start  mariadb.service 
+       4)GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication2'@'192.168.139.%' IDENTIFIED BY 'replication2';
+       5)FLUSH PRIVILEGES;
+       6)show master status;
+     B节点
+       1）systemctl stop mariadb.service 
+       2) vim /etc/my.cnf 
+          relay_log=relay2_log
+          log_bin=mysql2.bin
+          server_id=2
+	 auto_increment_offset=2
+	 auto_increment_increment=2
+       3)systemctl start  mariadb.service 
+       4)GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication1'@'192.168.139.%' IDENTIFIED BY 'replication1';
+       5)FLUSH PRIVILEGES;
+       6)show master status;查看目前在用的二进制日志名称和信息
+     A节点
+     7)change master to master_host='192.168.139.181' ,master_user='replication1',master_password='replication1',master_log_file='mysql2-bin.xxx',master_log_pos=#;
+     8)start slave;
+     9)show slave status/G
+     B节点
+     7)change master to master_host='192.168.139.180' ,master_user='replication2',master_password='replication2',master_log_file='mysql1-bin.xxx',master_log_pos=#;
+     8)start slave;
+     9)show slave status/G
+3、半同步复制: 
+       1）master确保一个从节点把数据完整复制过去，这是半同步复制存在的意义；剩余的从节点任然按照之前的异步方式进行；
+          主要应用于主节点有多个从节点，其他的同正常的主从复制没有不同；一般只需要选择其中任何一个从节点做为半同步节点
+       2）由google贡献的补丁；以插件的方式存在 centos7的mariadb才有如下两个插件，centos6没有
+          rpm -ql mariadb-server确认如下两个插件文件已经存在
+          /usr/lib64/mysql/plugin/semisync_master.so
+         /usr/lib64/mysql/plugin/semisync_slave.so
+       3）基于主从架构的具体操作步骤如下：
+                1、先按照主从架构的配置步骤，配置好主从架构，并启动服务
+	        2、主节点：
+                        MariaDB [(none)]> GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication'@'192.168.139.%' IDENTIFIED BY 'replication';
+                        MariaDB [(none)]> flush privileges;
+			MariaDB [(none)]> INSTALL PLUGIN rpl_semi_sync_master SONAME 'semisync_master.so';
+			Query OK, 0 rows affected (0.05 sec)			
+			MariaDB [(none)]> SHOW GLOBAL VARIABLES LIKE '%semi%';
+			+------------------------------------+-------+
+			| Variable_name                      | Value |
+			+------------------------------------+-------+
+			| rpl_semi_sync_master_enabled       | OFF   |
+			| rpl_semi_sync_master_timeout       | 10000 |
+			| rpl_semi_sync_master_trace_level   | 32    |
+			| rpl_semi_sync_master_wait_no_slave | ON    |
+			+------------------------------------+-------+
+			4 rows in set (0.00 sec)
+			MariaDB [(none)]> SET GLOBAL rpl_semi_sync_master_enabled=1;
+			Query OK, 0 rows affected (0.00 sec)
+			MariaDB [(none)]> SET GLOBAL rpl_semi_sync_master_timeout=2000;
+			Query OK, 0 rows affected (0.00 sec)
+		 3、其中一个从节点：如果从服务器的slave线程已经启动，先要停止slave线程
+			MariaDB [(none)]> INSTALL PLUGIN rpl_semi_sync_slave SONAME 'semisync_slave.so';
+			Query OK, 0 rows affected (0.05 sec)
+			MariaDB [(none)]> SHOW GLOBAL VARIABLES LIKE '%semi%';
+			+---------------------------------+-------+
+			| Variable_name                   | Value |
+			+---------------------------------+-------+
+			| rpl_semi_sync_slave_enabled     | OFF   |
+			| rpl_semi_sync_slave_trace_level | 32    |
+			+---------------------------------+-------+
+			2 rows in set (0.00 sec)
+			MariaDB [(none)]> SET GLOBAL rpl_semi_sync_slave_enabled=1;
+			Query OK, 0 rows affected (0.00 sec)
+                        MariaDB [(none)]> change master to master_host='192.168.139.180' ,master_user='replication',master_password='replication',
+                                          master_log_file='mysql-bin.xxx',master_log_pos=#;
+			MariaDB [(none)]> start slave;（确认主从服务器上的所有基本配置完成后，才启动slave线程，否则会有主服务器多余的操作被复制过来）
+                        MariaDB [(none)]> show slave status\G(确保复制线程正常启动）
+4、主节点：
+	               MariaDB [(none)]> show global status like '%semi%';(查看服务器状态统计）
++--------------------------------------------+----------+
+| Variable_name                              | Value    |
++--------------------------------------------+----------+
+| Rpl_semi_sync_master_clients               | 1        |（确保此处的master-clients至少为1）
+| Rpl_semi_sync_master_net_avg_wait_time     | 0        |
+| Rpl_semi_sync_master_net_wait_time         | 0        |
+| Rpl_semi_sync_master_net_waits             | 0        |
+| Rpl_semi_sync_master_no_times              | 1        |
+| Rpl_semi_sync_master_no_tx                 | 2        |
+| Rpl_semi_sync_master_status                | ON       |
+| Rpl_semi_sync_master_timefunc_failures     | 0        |
+| Rpl_semi_sync_master_tx_avg_wait_time      | 8416280  |
+| Rpl_semi_sync_master_tx_wait_time          | 16832560 |
+| Rpl_semi_sync_master_tx_waits              | 2        |
+| Rpl_semi_sync_master_wait_pos_backtraverse | 0        |
+| Rpl_semi_sync_master_wait_sessions         | 0        |
+| Rpl_semi_sync_master_yes_tx                | 2        |
++--------------------------------------------+----------+
+                5、现在可以在主服务器很多操作，确认从服务已经把数据复制过来即可
+                补充命令：1）MariaDB [(none)]>show plugins（查看已经安装的插件）
++--------------------------------+----------+--------------------+--------------------+---------+
+| Name                           | Status   | Type               | Library            | License |
++--------------------------------+----------+--------------------+--------------------+---------+
+| partition                      | ACTIVE   | STORAGE ENGINE     | NULL               | GPL     |
+| rpl_semi_sync_master           | ACTIVE   | REPLICATION        | semisync_master.so | GPL     |
++--------------------------------+----------+--------------------+--------------------+---------+
+                          2）MariaDB [(none)]>help install;（install命令介绍）
+                             Name: 'INSTALL PLUGIN'
+                             Description:
+                             Syntax:
+                             INSTALL PLUGIN plugin_name SONAME 'shared_library_name'（plugin_name是插件名，shared_library_name是插件文件名）
+4、复制过滤器
+		让slave仅复制有限的几个数据库，而非所有；
+		有两种实现思路：
+		(1) 主服务器仅向二进制日志中记录有特定数据库相关的写操作；
+		    问题：即时点还原将无法全面实现，不常用 
+			binlog_do_db=               # 数据库白名单
+			binlog_ignore_db=           # 数据库黑名单
+		(2)从服务器的SQL_THREAD仅在中断日志中读取特定数据相关的语句并应用在本地；
+		   问题：会造成网络带宽和磁盘IO的浪费；
+			Replicate_Do_DB=
+			Replicate_Ignore_DB=
+			Replicate_Do_Table=
+			Replicate_Ignore_Table= 
+			Replicate_Wild_Do_Table= 通配表
+			Replicate_Wild_Ignore_Table=
+                   具体操作步骤：
+                       在主从复制架构配置好的前提下进行
+                       slave节点：
+            1)change master to master_host='192.168.139.180' ,master_user='replication',master_password='replication',master_log_file='mysql-bin.xxx',master_log_pos=#;
+            2)stop slave;
+            3)set global replicate_do_db=chenhao;(要想永久有效，把该配置信息写人到/etc/my.cnf文件中,应该要退出来重新登录才有效，因为设置的是global变量）
+            4)star slave;
+            5)show slave status\G;
+                          Slave_IO_State: Waiting for master to send event
+                          Master_Host: 192.168.139.180
+                          Master_User: replication
+                          Master_Port: 3306
+                          Connect_Retry: 60
+                          Master_Log_File: mysql-bin.000003
+                          Read_Master_Log_Pos: 521213
+                          Relay_Log_File: node2-relay-bin.000003
+                          Relay_Log_Pos: 529
+                          Relay_Master_Log_File: mysql-bin.000003
+                          Slave_IO_Running: Yes
+                          Slave_SQL_Running: Yes
+                          Replicate_Do_DB: chenhao(确保此处的DB是chenhao）
+             6）在主节点的其他数据库做很多操作，验证数据是否复制过来
+                在主节点的chenhao数据库做很多操作，验证数据是否复制过来
+	5、基于SSL的复制（不常用）
+		前提：支持SSL
+		(1) 主服务器端配置证书和私钥，并创建一个要求必须使用SSL连接的复制账号(REQUIRE SSL);
+		(2) SLAV端连接master时，使用MASTER_SSL相关的选项来配置证书等信息；
+	6、跟复制功能相关的文件：如下两个文件在slave节点的datadir目录下
+		master.info：用于保存slave连接至master时的相关信息，如账号，密码,以及当前二进制的文件名和位置
+		relay-log.info：保存了当前slave节点上已经复制的当前二进制日志和本地relay log日志对应关系； 
+	7、复制的监控和维护
+		(1) 清理日志：PURGE （慎重使用）
+                     MariaDB [(none)]> show binary logs;
++------------------+-----------+
+| Log_name         | File_size |
++------------------+-----------+
+| mysql-bin.000001 |     28427 |
+| mysql-bin.000002 |   1038814 |
+| mysql-bin.000003 |    521213 |
++------------------+-----------+
+                     MariaDB [(none)]> purge binary logs to 'mysql-bin.000002';(清除掉mysql-bin.000002以前的日志）
+                     MariaDB [(none)]> show binary logs;
++------------------+-----------+
+| Log_name         | File_size |
++------------------+-----------+
+| mysql-bin.000002 |   1038814 |
+| mysql-bin.000003 |    521213 |
++------------------+-----------+
+		(2) 复制监控
+			SHOW MASTER STATUS
+                        SHOW SLAVE STATUS
+			SHOW BINLOG EVENTS 查看二进制日志的事件，等效于mysqlbinlog 
+			SHOW BINARY LOGS   查看有哪些二进制日志
+		(3) 如何判断slave是否落后于master		
+		    用show slave status\G命令查看Seconds_Behind_Master: 0
+		 (4) 如何确定主从节点数据是否一致？
+			通过表自身的CHECKSUM检查，具体怎么操作呢？
+			使用percona-tools中pt-table-checksum
+		(5) 数据不一致的修复方法：
+			重复复制；
+博客作业：主从复制，主主复制，半同步复制，SSL，复制过滤（后面4者都是在主从架构进行扩展实现）
+40-3
+回顾：
+	replication：横向扩展
+	主从、主主
+	master/slave
+		master: 读写都可以
+		slave：只读 
+		对于主从架构，写操作是无法均衡的，因为从节点也要把所有的事件在本地重放，但是读操作可以只在某一个实现
+	复制形式：
+		row
+		statement
+		mixed
+		master: binlog dump
+		slave: IO_THREAD, SQL_THREAD 	
+	半同步复制：
+		INSTALL PLUGIN
+mysql分布式系统：
+          cap指的是一致性，可用性，分区容错性
+切分：
+           垂直切分：分库，即把同一个库中的表分开存放
+           水平切分：分表，sharding（分表必须要有一个切分框架，如colbar,gizzard,...）
+补充说明：切分导致每一个节点上只有部分数据，如果该节点损坏，这部分数据将丢失。所以要对分片的数据做数据副本（类似主从）
+
+mysql高可用方案总结：
+第一种：主从复制+读写分离
+客户端通过Master对数据库进行写操作，slave端进行读操作，并可进行备份。Master出现问题后，可以手动将应用切换到slave端。 
+第二种：Heartbeat+双主从复制
+heartbeat是Linux-HA工程的一个组件,heartbeat最核心的包括两个部分：心跳监测和资源接管。在指定的时间内未收到对方发送的报文，
+那么就认为对方失效，这时需启动资源接管模块来接管运 行在对方主机上的资源或者服务
+第三种：HeartBeat+DRBD+Mysql
+DRBD 是通过网络来实现块设备的数据镜像同步的一款开源 Cluster 软件，它自动完成网络中两个不同服务 
+器上的磁盘同步，相对于 binlog 日志同步，它是更底层的磁盘同步，理论上 DRDB 适合很多文件型系统的高可用。
+第四种：Galera cluster
+就是通过wresp协议在全局实现复制，即双主模型，任何一个节点都可以读写
+第五种:MHA
+master HA（翻译过来就是主节点高可用，也是在传统主从架构上扩展来），从节点并没有做高可用，对主节点进行监控，在故障出现时，提升从节点成为主节点
+MHA：
+   MHA是建构在主从复制架构上的，一组主从复制称为一个application，global配置为每一个application提供默认配置
+   MHA主要是解决，master节点故障后，无法实现写操作的问题
+   MHA本身是一个开源的且可以独立用来实现mysql高可用的程序，本质是一个监控程序
+补充说明：分布式事务涉及到分段式提交，即只要有一个节点期望的动作没有完成，整个事务就不会完成
+          GTID,global transaction ID,全局事务ID 
+  Centos7上安装MHA的具体配置步骤
+     1）master节点
+     vim /etc/my.conf 
+     skip_name_resolve=on 
+     innodb_file_per_table=on 
+     log_bin=mysql-bin
+     relay_log=relay-log
+     server-id=1
+     MariaDB [(none)]> show master status;
+     MariaDB [(none)]> GRANT replication slave,replication client  ON *.* TO 'replication'@'192.168.139.%' IDENTIFIED BY 'replication';(创建一个复制权限账户）
+     MariaDB [(none)]> GRANT ALL ON *.* TO 'mhaadmin'@'192.168.139.%' IDENTIFIED BY 'mhaadmin';(创建一个管理账户，便于manager节点管理master/slave节点）
+     MariaDB [(none)]> flush privileges;
+     2）所有从节点：此时至少要有两个从节点
+     vim /etc/my.conf 
+     skip_name_resolve=on 
+     innodb_file_per_table=on 
+     log_bin=mysql#-bin 为了区别日志文件名要不一样
+     relay_log=relay#-log
+     server-id=#    
+     relay_log_purge=off (从节点必须设置,因为MHA通过relay log文件判断从节点走到哪里来了）
+     read_only=on(从节点必须设置，因为MHA通过该参数判断哪些是从节点）
+     > change master to master_host='192.168.139.180' ,master_user='replication',master_password='replication',master_log_file='mysql-bin.xxx',master_log_pos=#;
+      （此处的mster_log_file=mysql-bin.xxx,master_log_pos=#对应主节点show master status命令后的信息，目的是确保主节点上的那两个授权SQL语句也被执行）
+     > start slave;
+     > show slave status\G(查看主节点上的那两个授权SQL语句是否已经被执行）
+     3）在所有节点上配置好基于密钥认证的ssh登录
+     4）确保主从结构配置好的前提下，再在manager节点上做如下配置
+        网上下载mha4mysql-manager-0.56-0.el6.noarch.rpm，mha4mysql-manager-0.56.tar.gz，mha4mysql-node-0.56-0.el6.noarch.rpm,mha4mysql-node-0.56.tar.gz
+       yum install -y mha4mysql-manager-0.56-0.el6.noarch.rpm  mha4mysql-node-0.56-0.el6.noarch.rpm   el6的包可以在7上安装
+       mkdir /data/masterha/app1 -pv
+       mkdir /etc/masterha/
+       vim etc/masterha/app1.conf
+       [server default]
+       user=mhaadmin(管理员账号）
+       password=mhaadmin(管理员密码）
+       manager_workdir=/data/masterha/app1(manager的本地工作目录）
+       manager_log=/data/masterha/app1/manager.log 
+       remote_workdir=/data/masterha/app1 
+       ssh_user=root  
+       repl_user=replication（有复制权限的账号）
+       repl_password=replication
+       ping_interval=1
+       [server1]  这里至少要有3个节点，即一个主节点和两个从节点
+       hostname=192.168.139.180
+       candidate_master=1（是否可以成为主节点）
+       [server2]
+       hostname=192.168.139.181
+       candidate_master=1
+       [server3]
+       hostname=192.168.139.182  
+       candidate_master=1
+     6）在manager节点上
+        masterha_check_ssh     --conf=/etc/masterha/app.cnf ，检查ssh环境是否正常
+        masterha_check_repl    --conf=/etc/masterha/app.cnf ，检查复制环境是否正常
+        nohup masterha_manager --conf=/etc/masterha/app.cnf &>/data/masterha/app1/manager.log &，启动MHA服务
+      （这个服务有一个特性，只要有一个节点下线，提升一个从节点成为主节点后，该服务就会停止，所以需要需要手动重新启动，写一个脚本做定时任务，每隔n分钟检测mha服务，
+        如果服务停掉，就自动启动）
+     7）尝试停掉主节点，在余下从节点中查看主节点是否已经成功切换
+        在新的主节点上执行，show global variables like 'read_only%',查看read_only是否为off
+     8）更加详细的操作参照对应的PDF文档
+补充说明：
+      1、如果主节点坏了，在重新上线历史主节点前，应该把新主节点数据完全备份且同时记录当前的二进制日志文件及其位置，
+         然后在历史主节点上先做数据恢复，最后利用二进制日志进行复制
+      2、设置read_noly=on了，普通用户不能写数据，但是root用户还是可以写数据，参照上面锁的解释
+
+40-4
+读写分离器: 在读多写少的情况下有用
+		mysql-proxy (C++) --> Qihoo (atlas)
+		amoeba (java) 
+		dbrelay
+这是kingshard的开源地址，里面有详细的中文介绍https://github.com/flike/kingshard，
+kingshard是一个由Go开发高性能MySQL Proxy项目，kingshard在满足基本的读写分离的功能上，致力于简化MySQL分库分表操作；能够让DBA通过kingshard轻松平滑地实现MySQL数据库扩容。 
+kingshard的性能是直连MySQL性能的80%以上
+连入kingshard的方式和连入mysql是一样的
+复制的问题和解决方案：
+		(1) 数据损坏或丢失
+                      master：MHA+semirepl
+		      slave：重新复制（master节点最好做备份）
+		(2) 混合使用存储引擎
+		(3) 不唯一的server id
+		(4) 复制延迟
+数据库服务衡量指标：
+  qps：query per second，每秒查询量
+  tps：transaction per second，每秒事务量
+galera cluster（其本质上就是个多了galera代码的mysql服务,针对的是多主模型，也就是所有节点都支持读写，至少需要3个节点）
+   1）原生mariadb对galera不支持，需要mariadb对galera代码的支持才可以实现，wsrep协议复制
+      percona-cluster，就是整合了galera代码的mariadb分支，可以在percona官网下载
+      mariadb-cluster，就是整合了galera代码的mariadb分支，可以在mariadb官网下载
+   2）galera是一个底层的API，类似高可用集群中的pacemaker，如果应用程序有pacemaker功能，则不需要pacemaker，否则就需要pacemaker
+   3）galera与原生的mariadb不兼容，所以要把已经安装的mariadb-server卸载掉,最好找一个干净的节点安装，否则会安装不成功，非常重要
+      yum list all|grep galera   需要依赖galera,所以要确保epel源中有galera
+      yum install -y MariaDB-Galera-5.5.46-centos7-x86_64-server.rpm   MariaDB-5.5.46-centos7-x86_64-client.rpm  MariaDB-5.5.46-centos7-x86_64-common.rpm
+   4) rpm -ql MariaDB-Galera-server(字母大小写必须写对，否则无法查出来）
+      rpm -ql galera 
+     /usr/lib64/galera/libgalera_smm.so
+   5）vim /etc/my.cnf.d/server.cnf   
+      [galera]
+    # Mandatory settings
+      wsrep_provider=/usr/lib64/galera/libgalera_smm.so    即wrsep的提供者，执行rpm -ql galera查找
+      wsrep_cluster_address="gcomm://192.168.139.180,192.168.139.183,192.168.139.184"   集群中所有节点地址
+      wsrep_cluster_name='mycluster'（非必须，最好有）
+      wsrep_node_address='192.168.139.184'（非必须）
+      wsrep_node_name='node1'（非必须）
+      binlog_format=row
+      default_storage_engine=InnoDB
+      innodb_autoinc_lock_mode=2
+      bind-address=0.0.0.0
+   6) 务必确保关掉所有节点的iptables和selinux，首次启动时，需要初始化数据库，在其中一个节点执行
+      /etc/rc.d/init.d/mysql star --wsrep-new-cluster
+      Starting MySQL.......................... SUCCESS!
+      确认数据库初始化成功后，再在其他节点执行service mysql start 或者 systemctl start mysql,注意是mysql，不是mysqld
+      Starting MySQL.....SST in progress, setting sleep higher.. SUCCESS!
+   7）此时可以其中任意一个节点做很多操作，在其他节点查看数据是否已经复制过来。此时的复制同mysql没有任何关系，是galera协议自动实现的
+   8）查看集群相关参数
+      show status like 'wsrep%'
+
+博客作业：MHA和galera
+mysql基础知识：DDL,DML，锁，缓存，日志（二进制，错误，查询，慢查询，事务，中继）
+mysql重点内容：备份/恢复（备份策略，备份脚本，备份恢复测试）--》复制（主从、主主，半同步）---》mysql高可用（MHA，MMM）  
+
+mysql中间件有Atlas，cobar，TDDL，mycat，heisenberg,Oceanus,vitess,OneProxy
+目前小恩爱使用的是atlas，其特性有：
+1.主库宕机不影响读
+  主库宕机，Atlas自动将宕机的主库摘除，写操作会失败，读操作不受影响。从库宕机，Atlas自动将宕机的从库摘除，对应用没有影响。在mysql官方的proxy中主库宕机，从库亦不可用。
+2.通过管理接口，简化管理工作，DB的上下线对应用完全透明，同时可以手动上下线。
+3.自己实现读写分离
+  3.1)为了解决读写分离存在写完马上就想读而这时可能存在主从同步延迟的情况，Altas中可以在SQL语句前增加 /*master*/ 就可以将读请求强制发往主库。
+  3.2)主库可设置多项，用逗号分隔，从库可设置多项和权重，达到负载均衡。
+4.自己实现分表
+  4.1)需带有分表字段。
+  4.2)支持SELECT、INSERT、UPDATE、DELETE、REPLACE语句。
+  4.3)支持多个子表查询结果的合并和排序
+atlas缺点：
+  不能实现分布式分表，所有的子表必须在同一台DB的同一个database里且所有的子表必须事先建好，Atlas没有自动建表的功能。
+
+mysql-proxy是mysql官方提供的中间件，大概如下：
+		epel源：yum -y install mysql-proxy
+		使用官方二进制格式文件中的rw-splitting.lua脚本进行读写分离
+		配置文件：/etc/mysql-proxy.cnf
+			[mysql-proxy]
+			daemon = true
+			pid-file = /var/run/mysql-proxy.pid
+			log-file = /var/log/mysql-proxy.log
+			log-level = debug
+			max-open-files = 1024
+			plugins = admin,proxy
+			user = mysql-proxy
+			#Proxy Configuration
+			proxy-address = 0.0.0.0:3306                           #代理服务监听的地址和端口
+			proxy-backend-addresses = 172.16.100.7:3306            #支持读写操作的后端mysql                       
+			proxy-read-only-backend-addresses = 172.16.100.8:3306  #只读后端
+			#proxy-lua-script = 
+			 proxy-lua-script = /usr/lib64/mysql-proxy/lua/rw-splitting.lua  #读写分离脚本,没有找到该脚步
+			#proxy-skip-profiling = true
+			# Admin Configuration
+			admin-address = 0.0.0.0:4041
+			admin-lua-script = /usr/lib64/mysql-proxy/lua/admin.lua
+			admin-username = admin
+			admin-password = admin
+		启动服务：/etc/init.d/mysql-proxy
+
+
+Amoeba不能做什么？
+目前还不支持事务
+暂时不支持存储过程（近期会支持）
+不适合从amoeba导数据的场景或者对大数据量查询的query并不合适（比如一次请求返回10w以上甚至更多数据的场合）
+暂时不支持分库分表，amoeba目前只做到分数据库实例，每个被切分的节点需要保持库表结构一致,不是特别明白
+
+案例一：amoeba的安装配置过程，其详细配置信息参考http://docs.hexnova.com/amoeba/
+1）先配置java环境，同时配置好JAVA_HOME
+[root@localhost ~]# vim /etc/profile.d/java.sh  如果不配置好JAVA_HOME，启动amoeba时会报错
+export JAVA_HOME=/usr   先使用which java来查看，不要写成/usr/bin
+2）在后端msyql节点172.16.68.128和172.16.68.131上按照如下操作配置好mysql数据库
+[root@localhost ~]# yum install -y mysql-server
+[root@localhost ~]# service msyqld start
+[root@localhost ~]# mysql
+mysql> grant all on *.* to 'root'@'172.16.68.%' identified by 'chenhao@';
+mysql> grant all on *.* to 'root'@'127.0.0.1' identified by 'chenhao@';
+mysql> flush privileges;
+mysql> create table test.staff(ID int not null auto_increment,name varchar(10),primary key(ID));
+mysql> quit 
+[root@localhost ~]# mysql -h 172.16.68.128 -u root -p 确保此时可以连入mysql
+3)172.16.68.130安装amoeba
+[root@localhost ~]# mkdir amoeba;cd amoeba
+[root@localhost amoeba]# wget http://sourceforge.net/projects/amoeba/files/Amoeba%20for%20mysql/2.x/amoeba-mysql-binary-2.0.1-BETA.tar.gz/download  --no-check-certificate
+                         已经下载好
+[root@localhost amoeba]# tar -zxvf  amoeba-mysql-binary-2.0.1-BETA.tar.gz
+[root@localhost amoeba]# bin/amoeba    测试amoeba是否可以启动，如果此处报错修改bin/amoeba
+amoeba start|stop  
+[root@localhost amoeba]# vim bin/amoeba
+DEFAULT_OPTS="-server -Xms256m -Xmx256m -Xss256k"   原先是-Xss128k，修改为-Xss256k即可，如果上面没有报错，这一步可以省略
+[root@localhost amoeba]# vim conf/dbServers.xml
+<dbServer name="abstractServer" abstractive="true">  此处对应的是后端真实msyql主机的共同配置信息 
+                <factoryConfig class="com.meidusa.amoeba.mysql.net.MysqlServerConnectionFactory">
+                        <property name="manager">${defaultManager}</property>
+                        <property name="sendBufferSize">64</property>
+                        <property name="receiveBufferSize">128</property>
+                        <!-- mysql port -->
+                        <property name="port">3306</property>
+                        <!-- mysql schema -->
+                        <property name="schema">test</property>   数据库名
+                        <!-- mysql user -->
+                        <property name="user">root</property>
+                        <!--  mysql password -->
+                        <property name="password">chenhao@</property>
+                </factoryConfig>
+</dbServer>
+................
+<dbServer name="server1"  parent="abstractServer">
+                <factoryConfig>
+                        <!-- mysql ip -->
+                        <property name="ipAddress">172.16.68.128</property>  后端真实mysql主机的ip地址
+                </factoryConfig>
+</dbServer>
+[root@localhost amoeba]# vim conf/amoeba.xml
+<service name="Amoeba for Mysql" class="com.meidusa.amoeba.net.ServerableConnectionManager">
+<property name="port">8066</property>
+<property name="ipAddress">0.0.0.0</property>   修改为监听在amoeba所在主机的所有ip地址上
+..........................................
+<property name="user">root</property>
+<property name="password">chenhao@</property> 
+</service>
+[root@localhost amoeba]# bin/amoeba start   确保没有任何错误信息
+log4j:WARN log4j config load completed from file:/root/test/conf/log4j.xml
+log4j:WARN ip access config load completed from file:/root/test/conf/access_list.conf
+2017-10-18 04:56:14,211 INFO  net.ServerableConnectionManager - Amoeba for Mysql listening on /0.0.0.0:8066.
+2017-10-18 04:56:14,228 INFO  net.ServerableConnectionManager - Amoeba Monitor Server listening on /0.0.0.0:60874.
+[root@localhost amoeba]# ss -tunl  查看8066端口是否处于监听状态
+[root@localhost amoeba]# mysql -h 172.16.68.130 -u root  -P 8066 -p 
+Enter password: 
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 957920994
+Server version: 5.1.45-mysql-amoeba-proxy-2.0.1-BETA Source distribution  确保此时的版本是mysql-amoeba-proxy-2.0.1-BETA
+mysql>    在此时可以往test.staff插入数据，退出mysql数据库，然后mysql -h 172.16.68.128 -u root   -p连入数据库，如果数据存在，说明amoeba配置成功
+
+案例二：通过Amoeba对test.staff表进行分表操作，先要确保案例一的正常配置
+[root@localhost amoeba]# vim conf/dbServers.xml    在案例一的基础上增加server2的配置段
+<dbServer name="server2"  parent="abstractServer">
+                <factoryConfig>
+                        <!-- mysql ip -->
+                        <property name="ipAddress">172.16.68.131</property>
+                </factoryConfig>
+</dbServer> 
+]# vim conf/rule.xml
+<tableRule name="staff" schema="test" defaultPools="server1,server2">    表名，数据库名，后端msyql主机
+                <rule name="rule1" ruleResult="POOLNAME">
+                        <parameters>id</parameters>
+                        <expression><![CDATA[
+                                 var division = id % 2; 
+                                 case division when 0 then 'server1';
+                                               when 1 then 'server2';
+                                 end case; ]]></expression>
+                </rule>
+</tableRule>
+]# bin/amoeba start 启动过程不能报任何错误
+]# mysql -h 127.0.0.1 -u root -P 8066 -pchenhao@
+mysql> INSERT INTO test.staff(ID, NAME) values(1,'jerry');
+Query OK, 1 row affected (0.01 sec)   务必显示每一行都成功
+mysql> INSERT INTO test.staff(ID, NAME) values(2,'mark');
+Query OK, 1 row affected (0.01 sec)
+mysql> INSERT INTO test.staff(ID, NAME) values(3,'mary');
+Query OK, 1 row affected (0.00 sec)
+到后端节点各自查看数据,验证test.staff表确实被分表了
+]# mysql -h 172.16.68.128 -u root -pchenhao@
+mysql> select * from test.staff;
++----+-------+
+| ID | name  |
++----+-------+
+|  2 | mark  |
++----+-------+
+1 row in set (0.00 sec)
+]# mysql -h 172.16.68.131 -u root -pchenhao@
+mysql> select * from test.staff;
++----+-------+
+| ID | name  |
++----+-------+
+|  1 | jerry |
+|  3 | mary  |
++----+-------+
+2 rows in set (0.01 sec)
+
+
+mmm, percona-Galera cluster
+mmm: MySQL Master-Master Replication Manager
+参考文档：http://linuxguest.blog.51cto.com/195664/584788/

@@ -1,0 +1,266 @@
+常见的分布式文件系统有hdfs、Lustre、MogileFS、FreeNAS、FastDFS、GoogleFS，ceph,TFS,MooseFS,GlusterFS 
+
+mogilefs适合存储海量小文件(比如图片)的解释:
+传统的文件系统下，每个文件都要被创建对应的inode元数据，但是在海量文件场景下，传统FS已经无法承载如此多的元数据IO量以及如此庞大的元数据搜索计算量了，
+唯一的做法就是降低元数据量，那么势必就要降低文件实体的数量，所以这些文件系统无一例外的都是用了这样一种变通的方法，即在文件中再创建文件，比如一个64MB的大文件，
+比如其中可以包含16384个4KB的小文件，但是这个64MB的大文件只占用了1个inode，而如果存放4KB的文件的话，就需要16384个inode了。那么如何寻址这个大文件中的小文件呢？
+方法就是利用一个旁路数据库来记录每个小文件在这个大文件中的起始位置和长度等信息，也就是说将传统文件系统的大部分元数据剥离了开来，拿到了单独的数据库中存放，
+这样通过查询外部数据库先找到小文件具体对应在哪个大文件中的从哪开始的多长，然后直接发起对这个大文件的对应地址段的读写操作即可。另外还可以创建索引以加速文件查找动作。
+在一个海量分布式文件系统中，元数据就像上面的思想一样是分级的，中控节点也就是MDS，存储一级元数据，也就是大文件与底层块的对应关系，而数据节点则存放二级元数据，
+也就是最终的用户文件在这些一级大块中的存储位置对应关系，经过两级寻址从而读写数据。其实这些一级大文件，就可以认为它们是卷了，也就是在卷管理层之上再存放文件，
+这样就降低了单一空间下的文件总数量从而提高性能。
+
+44-1 
+RPC:远程过程调用，即调用远程函数，也就是函数不在本地，也可以理解调用API实现
+数据库结构：
+     结构化数据：sql，TPS(每秒事务量），mysql（主从复制，分库对应垂直切分，分表对应水平切分），强依赖性即强一致性
+     半结构化数据：json(轻量级的xml),xml(document store,典型代表有mongodb),html文档,弱依赖性即弱一致性
+     非结构化数据：KV(一个K对应一个V),典型的就是日志信息
+通用式分布存储：称为分布式存储,特性是不支持挂载，典型代表有mogilefs(应用于存储海量小文件，如图片)和fastdfs，通过调用API来实现应用
+专用式分布存储：称为分布式文件系统，特性是支持挂载，典型代表有moosefs
+补充说明：
+    1）分布式存储的通用问题是，一个大文件被切分成很多块，分开存在不同节点，怎么知道哪一个节点存了哪些数据库，即元数据。
+       解决方案是有中心节点(存储元数据)和无中心节点
+    2）hadoop distributed filesystem(简称HDFS)和taobao filesystem(简称TFS)都是根据google filesystem的思想来写的。
+44-2
+mogilefs由livejournal旗下的danga interactive研发，使用perl语言开发
+    特点有：
+         工作在应用层，即运行在用户空间，也就是基于本地文件系统
+         无单点:(因为有数据副本)
+               mogstored:存储多个数据副本
+               tracker:为了高可用，需要多个tracker节点，一般有2个tracker节点，共用后端database
+               database:由mysql实现，真正存储元数据
+         自动文件复制
+         传输中立，无特殊协议，即http或nfs，也就是mogstored通过http提供服务
+         简单的名称空间：domain，class，fid（把文件名修改为mogilefs的文件id），定位文件需要用到domain+fid
+         不用共享任何数据
+         不需要RAID 
+mogilefs的角色有
+   tracker:一般需要2个tracker。tracker负责返回给client数据存储信息，但不负责去访问数据，需要client自己访问
+   mogstored:一般需要2个以上mogstored。要打开WEBDAV，才能支持http的put，delete等动作
+   database
+服务进程有两个：
+          mogilefsd，指的就是tracker
+          mogstored
+安装补充说明：重要
+      1）正常mogilefs模型，需要2个tracker节点，2个mogstored节点，1个database节点，合计5个节点
+         但本次配置使用两个节点，一个节点同时扮演tracker，mogstored，database，一个节点同时扮演tracker，mogstored
+      2）提前安装好mysql服务，做为database
+perl模块的安装方式：
+     online安装cpan：
+          1）yum install perl-CPAN perl
+          2）perl -MCPAN -e shell            进入到CPAN交互界面
+          3）CPAN>install module_name::name  好处是自动解决依赖关系，有一些依赖关系还是需要手动解决，当前没有安装成功的原因估计就是有些依赖关系没有手动解决
+     offline安装cpan:需要解决很多依赖关系，不常用
+          1）在mirrors.aliyun.com上寻找CPAN（comprehensive  perl archive network） 下载mogilefs模块
+          2）perl makefile.pl                                                      编译安装perl程序
+          3）make
+          4）make install
+     rpm包：要自己制作或网上网友制作
+         cd  mogilefs的rpm包
+         tracker节点
+           yum install mogileFS-server-version.rpm  mogileFS-server-mogilefsd-version.rpm  实际上除了mogileFS-server-mogstored-version.rpm可以不用安装，其他包都可以安装
+         mogstored节点
+           yum install perl-IO-AIO                  (mogileFS-server-mogstored-version.rpm 程序依赖，但是它不会自动解决，需要手动解决）
+           yum install mogileFS-server-version.rpm  mogileFS-server-mogstored-version.rpm 
+    在本视频中，为了方便，在所有节点上做如下操作
+         cd  mogilefs的rpm包
+         yum install perl-IO-AIO
+         yum install -y *.rpm (如果是)
+在启动mogilefsd服务之前，先要做如下设置
+      1)启动mysql，连人mysql
+        create database mogdb;
+        grant all on mogdb.* to 'moguser'@'192.168.139.%' identified by 'mogpass';
+        flush privileges;
+      2)vim /etc/mogilefsd/mogilefsed.conf  这是mogilefsd的默认配置文件
+         db_dsn = DBI:mysql:mogdb:host=192.168.139.170（此处的mogdb对应1中创建的数据库名）
+         db_user = moguser
+         db_pass = mogpass
+         listen = 0.0.0.0:7001(原先是127.0.0.1，修改为0.0.0.0，即监听所有地址）
+      3)mogdbsetup  --dbhost=192.168.139.170  --dbname=mogdb --dbuser=mogilefs --dbpass=mogilefs  然后进入mysql，查看对应数据库是否相关表，有表才表示初始化成功
+      4)service mogilefsd start ，监听在7001端口
+在启动mogstored服务之前，先要做如下设置
+      1)vi  /etc/mogilefsd/mogstored.conf 
+         maxconns = 10000
+         httplisten = 0.0.0.0:7500（http监听端口）
+         mgmtlisten = 0.0.0.0:7501（管理端口）
+         docroot = /var/mogdata（数据目录）
+      2)mkdir -pv /var/mogdata/dev{1,2}   (dev要小写,对应配置文件中的数据目录)
+        chown -R mogilefs:mogilefs /var/mogdata
+        实际生产中每一个dev#都要挂载一块单独的硬盘，而且如果第一个mogstored节点是dev{1,2}，另外的mogstored节点就不能是dev{1,2}
+      3)service mogstored start 
+      4)mogadm --help
+        mogadm device add --help（通过增加主机把tracker节点和mogstored节点关联在一起）
+        mogadm device add  192.168.139.156 1
+                           192.168.139.156 2 
+                           192.168.139.163 3
+                           192.168.139.164 4(每个数字必须唯一）
+      5)依次增加host,device ,domain，然后mogupload,mogfetch文件,常用命令有
+        mogadm        mogdbsetup    mogfetch      mogfileinfo   moglistfids   mogrename     mogstored     mogupload     
+        mogautomount  mogdelete     mogfiledebug  mogilefsd     moglistkeys   mogstats      mogtool  
+      6)mogupload   --trackers=192.168.139.171 --domain=file  --key='fstab.txt'  --file='/etc/fstab' 先上传文件
+        mogfileinfo --trackers=192.168.139.171 --domain=file  --key='/fstab.txt'                     然后查看文件信息
+- file: /fstab.txt
+     class:              default
+    devcount:                    2
+    domain:                 file
+       fid:                    3
+       key:           /fstab.txt
+    length:                  805
+ - http://192.168.139.171:7500/dev4/0/000/000/0000000003.fid 访问该路径也能访问该文件内容
+ - http://192.168.139.170:7500/dev1/0/000/000/0000000003.fid
+44-3
+nginx官网：nginx.org
+寻找nginx_mogilefs_module的方法
+    1）在nginx官网中进入wiki，再进入第三方模块
+    2）百度搜索nginx mogilefs 
+nginx_mogilefs_module的安装方法
+    1)下载nginx的源码包
+    2)下载nginx_mogilefs_module
+    3)解压缩以上两个包
+    4)cd nginx-version 
+    5)yum install pcre-devel openssl-devl 还要确保开发环境，即Development tools和Server platform Tools也是安装的
+    6)./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-pcre --with-http_ssl_module --add-module=../nginx-mogilefs-module  
+       实际就是在源码编译nginx时，加载nginx-mogilefs-module模块
+    7)make 
+    8)make install 
+    9)对于编译安装的nginx，直接sbin/nginx就可以启动服务
+   10)nginx_mogilefs_module的代理配置,如下配置代码写在nginx.conf配置文件中，参照nginx-mogilefs-module的帮助文档
+       location /files/ { 
+         mogilefs_tracker 192.168.139.163:7001;  因为mogilefs也实现了http协议，所以nginx可以反向代理，7001是tracker监听端口
+         mogilefs_domain file;
+         mogilefs_pass {
+                proxy_pass $mogilefs_path;
+                proxy_hide_header content_type;
+                proxy_buffering off;
+                       }
+        }（该段代码实现了查看功能，实际就是反向代理，有点类似调用了mogilefs的API）
+    11)mogupload   --trackers=192.168.139.171 --domain=file  --key='fstab.txt'  --file='/etc/fstab'(此处的key不能加/,即不能写成--key='/fstab.txt'）
+    12)mogfileinfo --trackers=192.168.139.171 --domain=file  --key='fstab.txt' 
+- file: fstab.txt
+     class:              default
+  devcount:                    2
+    domain:                 file
+       fid:                    5
+       key:            fstab.txt(确认此处的key没有/)
+    length:                  805
+ - http://192.168.139.170:7500/dev1/0/000/000/0000000005.fid
+ - http://192.168.139.171:7500/dev4/0/000/000/0000000005.fid
+    13)验证192.168.139.163/files/fstab.txt是否可以访问的到，访问到说明配置成功
+       此处的fstab.txt就传递给$mogilefs_path，也指定了mogilefs_domain file，所以后端mogstored主机知道在file域中找key为fstab.txt的文件
+       因为此处传递给后端的参数就是fstab.txt，所以后端mogstored主机就只能找fstab.txt，所以不能写成/fstab.txt，否则查找不到
+    14)上传文件代码视频中演示失败
+    总结：API的调用实际就是给后端传递参数
+对tracker做负载均衡的配置
+    15）在nginx.conf的http中增加如下代码
+        upstream  mogtracker {
+                 server 192.168.139.156:7001;
+                 server 192.168.139.163:7001;
+        }
+    16）location /files/ { 
+         mogilefs_tracker mogtrackers;
+         mogilefs_domain file;
+         mogilefs_pass {
+                proxy_pass $mogilefs_path;
+                proxy_hide_header content_type;
+                proxy_buffering off;
+                       }
+        } 
+44-4 
+fastdfs分布式存储，类似mogilefs，其是一个开源的轻量级分布式文件系统，用c++研发，是中国人开发
+fastdfs有三个角色:tracker server，storage server，client
+tracker：跟踪服务器，调度，在内存中记录所有存储组和存储服务器信息，如有哪几个存储组，每一个存储组中有哪些server
+storage：存储服务器，存储文件(data)和文件属性(metadata)
+         storage节点会主动把自身的状态信息通告给tracker，所以多个tracker之间不需要通信
+client：客户端，业务请求发起方通过专业接口基于TCP协议与tracker，storage节点进行交互，主要动作有上传和下载
+fid的表示方式：group_name/m##/&&/&&/file_name
+    group_name:存储组的组名，上传完成后，需要客户端自己保存
+    m##：服务器配置的虚拟磁盘路径，与磁盘选项store-path对应。类似mogilefs中的dev#,一个server可以多个存储路径，即有多块硬盘
+    &&：两级以两位16进制数据命令的目录，对应hash后的数值
+    文件名：与原文件名不相同，由storage节点根据特定信息生成，文件名包含源文件存储服务器的IP地址，文件大小，随机数和文件扩展名等
+fastdfs的安装方式：
+一个就是编译安装fastdfs和libfastcommon：
+      1)yum install git
+      2)到https://github.com/happyfish100/libfastcommon下载libfastcommon地址
+      3)git clone  https://github.com/happyfish100/libfastcommon.git （libfastcommon是fastdfs的依赖包，所以需要先安装）
+      4)cd libfastcommo
+      5)less INSTALL(查看安装步骤）
+      6)./make.sh 
+      7)./make.sh install
+       对fastdfs做同样操作
+      8)到https://github.com/happyfish100/fastdfs下载fastdfs地址
+      9)git clone   https://github.com/happyfish100/fastdfs.git 
+     10)cd fastdfs
+     11)less INSTALL(查看安装步骤）
+     12)./make.sh 
+     13)./make.sh install  
+一个是自己制作rpm包安装：
+      1)yum install git
+      2)到https://github.com/happyfish100/libfastcommon下载libfastcommon地址
+      3)git clone  https://github.com/happyfish100/libfastcommon.git （libfastcommon是fastdfs的依赖包，所以需要先安装）
+      4)cd libfastcommo
+      5)less  libfastcommon.spec(查看最新版本信息,如1.0.36）
+      6)cd ..
+      7)mv libfastcommo{,-1.0.36}
+      8)tar -zcvf libfastcommon-1.0.36.tar.gz libfastcommon-1.0.36/* 
+      9)mkdir rpmbuild/{SOURCES,SPECS} -pv 
+      10)cp libfastcommon-1.0.36/libfastcommon.spc  rpmbuild/SPECS
+      11)cp libfastcommon-1.0.36.tar.gz             rpmbuild/SOURCES 
+      12）cd rpmbuild/SPECS 
+      13）rpmbuild -ba libfastcommon.spec ，制作好的rpm包就在rpmbuild/RPMS/x86_64/路径下
+      14)cd rpmbuild/RPMS/x86_64/
+      15) yum install libfastcommon-1.0.36-1.el7.centos.x86_64.rpm  libfastcommon-devel-1.0.36-1.el7.centos.x86_64.rpm
+      对fastdfs做同样操作
+44-5  
+tracker节点的启动准备
+  1)vim vim /etc/fdfs/tracker.conf
+    store_group=group1
+    base_path=/var/fastdfs/tracker
+ 2)mkdir /var/fastdfs/tracker -pv
+ 3)service fdfs_trackerd start，监听在22122端口
+storage节点的启动准备
+ 1)vim vim /etc/fdfs/storage.conf
+   tracker_server=192.168.139.181:22122
+   base_path=/var/fastdfs/storage
+   store_path0=/var/fastdfs/storage/0
+ 2)mkdir /var/fastdfs/storage/0 -pv 
+ 3)service fdfs_storaged start,监听在23000端口
+客户端常用命令：
+ fdfs_monitor  client.conf 
+ fdfs_delete_file 
+ fdfs_file_info       
+ fdfs_download_file    
+ fdfs_monitor                 
+ fdfs_upload_file
+补充说明：现在安装fastdfs-nginx-modul的目的主要是为了客户提供一个web接口，没有负载均衡功能，因为在fastdfs中，tracker自己已经有负载均衡功能。
+          而mogilefs中安装的nginx-mogilefs-module有负载功能作用。
+fastdfs-nginx-module的安装步骤如下（更加详细的安装步骤less fastdfs-nginx-module/INSTALL）
+  1)按照之前的步骤先安装好libfastcommon和fastdfs
+  2)yum install git -y 
+  3)git clone  https://github.com/happyfish100/fastdfs-nginx-module.git
+  4)yum install pcre-devel openssl-devl 
+    确保开发环境，即Development tools和Server platform tools也是安装的
+  5)源码编译nginx时，加载fastdfs-nginx-module模块
+     ./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-pcre --add-module=../fastdfs-nginx-module/src  --with-http_ssl_module
+  6)make 
+  7)make install
+  8)cp fastdfs/conf/{http.conf,mime.type}         /etc/fdfs/
+  9)cp fastdfs-nginx-module/src/mod_fastdfs.conf  /etc/fdfs/
+    8和9步非常重要，这两步确保nginx的worker线程可以启动
+  10)vim /etc/fdfs/mod_fastdfs.conf
+     base_path=/var/fastdfs/storage
+     tracker_server=192.168.139.184:22122
+     store_path0=/var/fastdfs/storage/0
+     url_have_group_name = true
+   11)ln -sv  /var/fastdfs/storage/0   /var/fastdfs/storage/0/M00
+   12)vim nginx.conf,增加如下代码
+     location ~ /group[0-9]+/M00 {
+            root /var/fastdfs/storage/0/data;
+            ngx_fastdfs_module;
+      }
+  13)/usr/local/nginx （先测试语法，没有问题就启动）
+  14)ps aux(查看nginx的worker线程是否启动，很重要）
+  15)fdfs_upload_file client.conf  /etc/group 上传文件
+     group1/M00/00/00/wKiLuFlRG7OAPicGAAAD5LoOQrU9780401
+  16)http://192.168.139.184/group1/M00/00/00/wKiLuFlRG7OAPicGAAAD5LoOQrU9780401
+     验证是否可以查看到相关内容

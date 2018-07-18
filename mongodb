@@ -1,0 +1,541 @@
+MongoDB关键特点：
+      灵活动态的文档模型
+      高可用副本集(也称主从复制集）
+      水平扩展，也就是sharding
+MongoDBsharding解释：
+      sharding是一种水平扩展的方式，通过这种方式对数据库进行扩容，对应用来说是透明的。
+      sharding可以将一个集合的数据分散到多个shard节点上。每个shard又都可以做成一组副本集。--至关重要，从这里可以看出副本集和sharding是两个维度的概念
+      应用程序通过一个路由节点(mongos)来访问sharding集群的数据。
+      有了sharding，MongoDB就可以突破单机的限制，比如磁盘、内存和IOPS等，从而提供更强大的服务能力。
+MongoDB概念：
+         具有相似结构的文档通常被组织成集合，集合对应关系数据库中的的表，文档对应的是行，字段对应的是列
+
+
+53-1
+NoSQL:not only sql,是一种技术流派，mongodb是其中的一种实现方式
+大数据存储问题：
+      并行数据库：垂直切分，水平切分，分区查询
+      Nosql数据库管理系统：非关系模型，分布式，不支持ACID数据库设计方式
+      简单数据库模型
+      元数据和数据分离
+      弱一致性
+      高吞吐量
+      高水平扩展能力和低端硬件集群
+      Newsql数据库管理系统,典型代表产品有clustrix等
+      云数据管理
+大数据分析问题：
+      mapreduce（程序和数据都被切分）
+ CAP
+    Consistency(一致性), 数据一致更新，所有数据变动都是同步的
+    Availability(可用性), 好的响应性能
+    Partition tolerance(分区容错性) 可靠性
+    最终一致性分为：因果一致性，读自己一致性，会话一致性，单调读一致性，时间轴一致性
+    ACID:强一致性，隔离型，采用悲观保守的方法，难以改变
+    BASE:弱一致性，可用性优先，乐观的方法，适应变化，更快，更简单
+ 数据一致性的实现方式：
+      NRW：R指read，W指write，R+W＞N，表示强一致性
+      2PC:即两段式提交，2 phase commit（只要有其中一个节点没有准备好，就无法进入下一个阶段)
+      paxos
+      vector clock
+ nosql技术流派的网页：www.nosql-database.org
+ nosql数据存储模型：
+      列式存储模型
+      文档数据模型（可以把一行数据理解为一个文档，mongodb就是一个文档数据模型）
+      键值数据模型
+      图式数据模型
+53-1，57分钟
+      列式存储模型：
+         应用场景：在分布式文件系统上提供支持随机读写的分布式数据存储
+         典型产品:Hdoop/Hbase,hypertable
+         数据模型：以列为中心进行存储，同一列数据存放在一起
+         优点：快速查询，高扩展性，易于实现分布式扩展
+      文档数据模型：
+         应用场景：非强事物需求的Web应用，海量数据访问
+         典型产品：mongodb，elasticsearch
+         数据模型：键值模型，存储为文档
+         优点：数据模型无需事先定义，海量的数据中快速的查询数据
+      键值数据模型:
+         应用场景:内容缓存，面向高性能并发读写的情况
+         典型产品:redis,riak
+         数据模型：基于hash表实现的key-value
+         优点：快速查询,具有极高的并发读写性能
+     图式数据模型:
+         应用场景：社交网络，推荐系统
+         典型产品:neo4j
+         数据模型：图式结构
+         优点：适用于图式计算场景
+  mongodb的官网：www.mongodb.org
+  mongodb特性：nosql,文档存储，json，C++语言开发
+  mongodb的安装：可以通过rpm包，源码包，也可以yum安装
+
+
+53-2
+https://www.mongodb.com/download-center?jmp=nav#community 到这里下载mongodb源码
+注意：mongodb的客户端和服务器版本尽量要一致，否则会出现客户端连接不上服务器的情况
+mongodb的安装：
+  1)找到已经准备好的rpm包
+  2)yum install -y *.rpm
+  3)vim /etc/mongod.conf
+    #bind_ip=127.0.0.1(注释掉该行，表示监听本机所有地址的27017端口）
+    httpinterface=true（开启http端口，即28017端口，http端口有什么用）
+  4)service mongod start 
+    ss -tunl
+mongodb常用客户端命令：（因为mongodb是参考mysql设计的，所以所有操作联想mysql操作即可，mongo对应mysql，mongod对应mysqld）
+    mongo -h (查看帮助）
+    [root@localhost mongodb-2.6.4]# mongo --host 192.168.139.186 
+    MongoDB shell version: 2.6.4
+    connecting to: 192.168.139.186:27017/test
+    > help （截取了部分常用命令）
+        sh.help()                    sharding helpers(所有涉及到分片操作都可以执行该命令查找）
+        rs.help()                    replica set helpers   所有涉及到复制集操作都可以执行该命令查找，rs是replica set的简写
+        db.help()                    help on db methods(所有涉及到数据库的操作都可以执行该命令查找）
+        db.mycoll.help()             help on collection methods（collection相当于mysql中的表，所有涉及到表的操作都可以执行该命令查找）
+        show dbs                     show database names                  显示所有的数据库名称
+        show collections             show collections in current database 显示当前数据库的所有表
+        show users                   show users in current database
+        show logs                    show the accessible logger names
+        use <db_name>                set current database（数据库无需事先创建，可以直接使用，它会延迟创建）
+        exit                         quit the mongo shell
+database的常用命令如下
+   > db.help() （截取了部分常用命令）
+     DB methods:
+        db.printReplicationInfo() 打印复制集信息，包括oplog
+        db.createCollection(name, { size : ..., capped : ..., max : ... } )
+        db.createUser(userDocument)
+        db.dropDatabase()（先要用use命令切换到指定数据库）
+        db.dropUser(username)
+        db.serverStatus()服务器状态
+        db.shutdownServer()
+        db.stats() 数据库状态
+        db.version() current version of the server
+collection的常用命令如下
+   > db.mycoll.help() （这里的mycoll指的是表名，可以替换成实际创建的表名，如students）
+     DBCollection help
+        db.mycoll.find().help() - show DBCursor help
+        db.mycoll.count()
+        db.mycoll.drop()                  表示drop the collection，先要用use命令切换到指定数据库，才能删除表
+        db.mycoll.dropIndex(index)        比如db.mycoll.dropIndex( "indexName" ) or db.mycoll.dropIndex( { "indexKey" : 1 } )
+        db.mycoll.dropIndexes()
+        db.mycoll.find([query],[fields])  比如db.mycoll.find( {x:77} , {name:1, x:1} )
+        db.mycoll.find(...).count()
+        db.mycoll.find(...).limit(n)
+        db.mycoll.find(...).skip(n)
+        db.mycoll.find(...).sort(...)
+        db.mycoll.findOne([query])
+        db.mycoll.insert(obj)
+        db.mycoll.remove(query)           删除指定的文档，类似mysql中的行
+        db.mycoll.renameCollection( newName , <dropTarget> ) renames the collection.
+        db.mycoll.stats()
+        db.mycoll.update(query, object[, upsert_bool, multi_bool]) - instead of two flags, you can pass an object with fields: upsert, multi
+mongodb也有DDL和DML语言
+        JSON:javascript object notation ,即JS对象标记,是一种轻量级的数据交换格式，联想到XML或者javascript，名称/值对象的集合值的有序列表
+具体操作实列:
+CRUD：表示create,read,update,drop
+        use chenhao
+        db.students.insert({name:'jerry',age:20})(字符类型数据必须加引号）
+        db.students.find()                        把所有内容查找出来
+        db.students.find({age:{$gt:20}})
+        db.students.find({age:{$in:[20,40]}})      (表示20和40，不是20到40）
+        db.students.find({$or:[{age:{$in:[20,40]}},{name:'tom'}]})
+        db.students.find({gender:{$exists:true}}) 返回gender字段存在的文档
+        db.students.update({name:'jake'},{$set:{gender:'women'}}) 修改gender字段的值
+        db.students.find({name:'jerry'},{$unset: age}) 删除指定行中的字段，但是没有成功？
+        db.mycoll.remove({age:20})   删除指定的行即文档，类似mysql中的行。只要年龄为20的文档，都会被删除
+db.mycoll.find()的高级用法
+      （1）比较操作
+          $gt，语法格式{field：{$gt:value}}
+          $gte
+          $lt
+          $lte
+          $ne
+          $in, 语法格式{field：{$in:[value1,value2]}}
+          $nin,语法格式{field：{$nin:[value1,value2]}}
+     （2）组合操作：
+          $or 或运算，语法格式{$or:[{expression1},{expression2},...]}
+          $and
+          $not 非运算
+          $nor,反运算，返回不满足指定条件的文档
+     （3）元素查询:根据文档中是否存在指定的元素进行查询
+          $exists 语法格式 {field ：{$exists:<bool>}} (bool可以是true或false）
+          $mod取模运算
+          $type 返回指定类型的字段   {field ：{$type:<BSON type>}}  BSON type的格式有： 1 double,2 string,3 object,....
+更新操作：db.mycoll.update()
+          $set 修改字段的值为指定的值 ，语法格式（{field:value},{$set:{field:value}}）  
+          $unset 删除指定字段 ，语法格式（{field:value},{$unset:{field，field}}）  
+          $rename ,修改字段名，语法格式（{field：value}，{$rename:{oldname:newname,oldname:newname,...}）（可以同时修改多个字段名）
+删除操作：db.mycoll.remove({field:value}) 删除指定的行即文档，类似mysql中的行
+补充说明：
+        1）安装的mongodb-org-shell-2.6.4-1.x86_64.rpm，提供给用户一个交互的操作接口
+        2）但要想让其他程序可以使用mongodb，就要调用mongodb的API，如对于php程序，就要安装php+mongodb,即php的mongodb扩展
+53-3
+mongodb的indexes and administration
+    快速创建表 for (i=1;i<=100;i++) db.students.insert({name:"students"+i})，在mongodb的交互式shell里面操作
+    索引类型：B+（B+树索引，可以排序），平衡树索引，hash索引（不能排序，但是搜索时间是固定的），空间索引，全文索引
+    mongodb支持的索引类型：
+           单字段索引
+             组合索引(多字段索引）
+             多键索引
+             空间索引
+             文本索引
+             hash索引
+mongodb索引的相关操作
+      db.mycoll.ensureIndex(field[,options]),创建索引，常见的option有unique，dropdups（删除相同的操作，不建议使用），sparse（稀疏索引）
+      db.mycoll.dropIndex(index_name)删除指定的索引
+      db.mycoll.dropIndexes()，删除所有的索引
+      db.mycoll.getIndexes()
+      db.mycoll.reIndex() 
+      db.mycoll.find().explain,显示语句的执行过程，判断index是否起作用
+索引的具体操作实列：
+      >db.mycoll.ensureIndex({name:1}) 表示在name上创建索引，1表示索引为升序，-1表降序
+      >db.students.getIndexes()
+[
+        {
+                "v" : 1,
+                "key" : {
+                        "_id" : 1
+                },
+                "name" : "_id_",
+                "ns" : "chenhao.students"
+        },
+        {
+                "v" : 1,
+                "key" : {
+                        "name" : 1
+                },
+                "name" : "name_1",
+                "ns" : "chenhao.students"
+        }
+]
+      > db.students.dropIndex('name_1')（必须要加引号）
+      > db.students.find({name:'jerry'}).explain
+      > db.students.ensureIndex({name:1},{unique:true}),加unique表示唯一，即后面再有同名的人就加不进来了
+mongod的常用选项如下
+       # mongod --help 
+Options:
+General options:通用选项
+   --fork=（true|false），ture表示运行在后台，false表示运行在前台
+   --bind_ip=IP绑定IP地址
+   --port=PORT
+   --maxConns=#
+Replication options:
+   --oplogSize arg       size to use (in MB) for replication op log. default is 5% of disk space (i.e. large is good)，该选项可以修改oplog.rs的大小
+Master/slave options (old; use replica sets instead):主从选项
+   --master              master mode
+   --slave               slave mode
+   --source arg          when slave: specify master as <server:port>
+   --only arg            when slave: specify a single database to replicate
+   --slavedelay arg      specify delay (in seconds) to be used when applying master ops to slave
+   --autoresync          automatically resync if slave data is stale
+Replica set options:复制集选项
+   --replSet arg           arg is <setname>[/<optionalseedhostlist>]
+   --replIndexPrefetch arg specify index prefetching behavior (if secondary) [none|_id_only|all]
+Sharding options:分片选项
+   --configsvr           declare this is a config db of a cluster; default port 27019; default dir /data/configdb 声明这个节点是config server
+   --shardsvr            declare this is a shard db of a cluster; default port 27018
+mongodb的复制类型有如下两种：（联想到mysql的复制功能）
+       master/slave
+       replica set：
+       复制集特点有：
+                     1）可以自动实现故障转移，目前常见
+                     2）是服务于同一个数据集的多个mongodb实列
+                     3）每一个mongodb节点内的数据是一样的，但是有一个主节点，其余的是从节点。主节点可以实现读写，从节点实现读
+                     4）实现复制的原理是，主节点将数据修改操作保存至oplog中（类似mysql中的bin-log）
+                     5）至少3个节点，且是奇数节点，其中一个节点被用来当abiter（仲裁者），主节点每隔2s传递heartbeat给各从节点，
+                        从节点如果没有在规定时间内收到主节点的heartbeat，从节点主动联系abiter，实现故障自动转移，
+       复制集中的节点分类：
+                     0优先级的节点：冷节点，不可以成为主节点，但是可以参加选举。作用是应用于异地灾备情景中
+                     被隐藏的从节点：首先是0优先级的从节点，其次是不被客户端所见
+                     延迟复制的从节点：首先是0优先级的从节点，且复制时间落后于主节点一个固定时间。作用是避免主节点中的错误操作在一段时间内不会影响从节点
+                     arbiter（仲裁），可以是一个外部的web服务器
+mongodb的复制架构:
+           oplog和heartbeat
+           oplog：      大小固定的文件，存放在local数据库中。只有启动了复制集后，每一个节点才有oplog，只有主节点可以对oplog实现写
+           local数据库：存放了副本集的所有元数据和和oplog，存放oplog的是一个叫oplog.rs的collection。 oplog.rs的大小依赖于OS和文件系统，但可以自定义oplogSize。
+                        local数据库不会被复制到从节点
+           初始同步（initial  sync）
+           回滚后追赶（post-rollback catch-up）
+           切分块迁移（sharding  chunk  migration）
+mongodb的数据同步类型
+           首先是初始同步：
+                 新节点刚加入，没有任何数据，而主节点已经工作一段时间了或者从节点丢失副本复制集
+                 初始同步要经历的步骤：
+                            （1）克隆所有数据库
+                            （2）应用数据集的所有改变，即复制oplog并应用到本地
+                            （3）为所有collection构建索引
+           其次是复制
+           副本集的重新选举的影响条件：心跳信息，优先级，optime（最后一次应用oplog的时间），网络连接，网络分区
+           选举机制：
+           触发选举的条件：
+                新副本集初始化时
+                从节点联系不到主节点
+                主节点自动“下台”时，即执行rs.stepDown()或者某从节点有更高的优先级且有其他满足成为主节点的条件
+                主节点无法联系到副本集的“多数方”
+replica set的常用命令如下
+  > rs.help() 
+        rs.status()                     { replSetGetStatus : 1 } checks repl set status
+        rs.initiate()                   { replSetInitiate : null } initiates set with default settings
+        rs.initiate(cfg)                { replSetInitiate : cfg } initiates set with configuration cfg
+        rs.conf()                       get the current configuration object from local.system.replset 显示配置信息
+        rs.reconfig(cfg)                updates the configuration of a running replica set with cfg (disconnects)
+        rs.add(hostportstr)             add a new member to the set with default attributes (disconnects)
+        rs.add(membercfgobj)            add a new member to the set with extra attributes (disconnects)
+        rs.addArb(hostportstr)          add a new member which is arbiterOnly:true (disconnects)添加一个主机成为一个仲裁节点
+        rs.stepDown([secs])             step down as primary (momentarily) (disconnects)
+        rs.syncFrom(hostportstr)        make a secondary to sync from the given member
+        rs.freeze(secs)                 make a node ineligible to become primary for the time specified
+        rs.remove(hostportstr)          remove a host from the replica set (disconnects)删除一个从节点
+        rs.slaveOk()                    shorthand for db.getMongo().setSlaveOk()
+        rs.printReplicationInfo()       check oplog size and time range
+        rs.printSlaveReplicationInfo()  check replica set members and replication lag
+        db.isMaster()                   check who is primary 查看谁是主节点
+53-4
+复制集具体操作步骤：
+            配置架构：一台主机做主节点，另外两台主机做复制节点也就是从节点
+            1）在主节点
+               vim  /etc/mongondb.conf
+               #bind_ip=127.0.0.1 注释掉该句，监听本机所有地址
+               replSet=repl（必须要有replset的name， replSet的具体意思使用mongod --help查看对应选项）
+               replIndexPrefetch=_id_only(索引预取，提升查询速度，可以定义在主节点，但是只在从节点有效）
+               httpinterface=true 开启web接口
+               service mongod start 
+               ss -tunl
+               mongo  连入数据库
+               rs.initiate() 初始化复制集
+               > use local
+               switched to db local
+setname:PRIMARY> show collections 
+me
+oplog.rs   验证oplog.rs的collection是否存在，刚启动时可能不存在，oplog.rs就是oplog文件
+startup_log
+system.indexes
+system.replset
+               rs.status()
+               rs.add('192.168.139.171')  增加从节点
+               rs.add('192.168.139.186')
+               rs.status()   刚开始是 "STARTUP2，最后转化成"STARTUP2
+               做很多操作
+           2)在复制节点
+               正常安装mongodb
+               把主节点的/etc/mongondb.conf复制过来即可
+               service mongod start
+               mongo --host 192.168.139.171
+               rs.slaveOk()  必须执行该命令，否则不能查看
+               show dbs 验证主节点的数据库是否已经同步过来
+           3)在主节点 
+               rs.stepDown（）或者service mongod stop
+               rs.status() 验证主节点是否会自动切换
+               db.printReplicationInfo() 查看复制集信息
+           4)设置节点优先级，必须要在主节点才可以做如下操作
+               cfg=rs.status()           使用cfg变量保存当前复制的配置信息
+               cfg.members[1].priority=#（#越大，优先级越高）
+               rs.reconf(cfg)            重读配置文件
+               rs.status()               验证优先级是否已经修改
+第4步可选做
+mongodb的分片：分片指的是对collection进行；由于cpu，memory，IO硬件资源不足，所以要切分数据库,主要是突破单机容量限制
+mysql支持的分片，需要额外的Gizzard，HiveDB切分框架，mysql视频中没有讲解，但是可以使用kingshard对mysql进行分片
+mongodb分片架构中的角色：
+           1)mongos：
+               route节点即类似mongodb的透传视代理，所以mongos也监控在27017端口
+               client向mongos发起查询，mongos再向config server发起查询
+               实际生产环境中， mongos要做负载均衡
+           2)config server：
+               一般有3个节点，元数据服务器，实际上存储的就是未分片前原始数据的索引。
+               mongos通过config server获得数据的具体存放信息
+               实际生产环境中，config server要做高可用
+           3)shard：
+               数据节点，也称为mongod实例，一般有3个节点
+               每一个shard都可以做成replica  set，也就是针对该shard节点上的数据又可以做主从复制
+               真正的分片单位是chunk,哪一个chunk存放在哪一个shard上
+切片的指导思想：
+         根据哪一个索引做切片，该索引叫分片键。
+         写分散，读集中（主要根据业务需求决定，没有唯一的原则）
+         Sharded cluster支持将单个集合的数据分散存储在多个shard节点上，用户可以指定根据集合内文档的某个字段即shard key来分散数据，
+         基于范围切片：
+               range，可以排序，对应的index是B+数索引
+               文档是根据其shard key的值进行分片。shard key的值相邻近的文档比较有可能会被放在同一个shard上，这种方式适用于需要使用范围查询的业务。
+         基于hash切片：
+               hash（不可以排序，但查询时间固定，对应的index是hash索引）
+               文档根据其shard key的hash值进行分片。这会保证数据分布比较均匀，但是不利于范围查询。
+         基于列表切片：list
+切片的具体配置步骤：
+        配置架构：一台主机当mongos和config server，另外两台主机当shard
+        1)在config server节点
+          yum install -y *.rpm
+          vim /etc/mongodb.conf 
+          不要启用复制集的配置
+          configsvr=true (具体使用mongod --help查看选项）
+          service mongodb start
+          ss -tunl 监听在27019端口
+        2)在shard节点
+           正常安装mongodb就可以了
+           vim  /etc/mongondb.conf
+               #bind_ip=127.0.0.1 
+               httpinterface=true 开启web接口
+               不需要配置复制集，如果有需要，也可以配置成为复制集
+           service mongodb start
+        3)在mongos节点
+           yum install -y mongodb-org-mongos  (专门的mongos程序,也可以yum install -y *.rpm，只是不开启mongod服务） 
+           mongos --help
+           mongos --configdb=192.168.139.170 --fork（表示工作在后台） --logpath=/var/log/mongodb/mongos.log ，相当于启动mongos服务
+           ss -tunl 监听在27017端口
+           mongo   连接到mongodb
+           sh.addShard(‘192.168.139.171’)   添加shard节点 
+           sh.addShard(‘192.168.139.172’)
+           sh.enableSharding(‘testdb’)      针对testdb库启用shard
+           sh.shardCollection('testdb.students',{'age':1})  针对testdb库中的students collection启用shard，且分片键为age,定义分片规则
+           for (i=1;i<=10000;i++) db.students.insert({name:"students"+i，age:(i%120)}) 
+           创建一个大表，看是否会分片
+           这里的字段里面必须要有age，因为你前面的分片键是age
+           use testdb
+           db.students.find().count() 查看是否已经有数据生成
+           mongos> sh.status()  数据库中没有启用shard的表，存放在主shard中，但是好像没有定义哪一个是主shard
+--- Sharding Status --- 
+  sharding version: {
+        "_id" : 1,
+        "version" : 4,
+        "minCompatibleVersion" : 4,
+        "currentVersion" : 5,
+        "clusterId" : ObjectId("595aa45af7d86d08d9d6a593")
+}
+  shards:
+        {  "_id" : "shard0000",  "host" : "192.168.139.171:27017" }
+        {  "_id" : "shard0001",  "host" : "192.168.139.186:27017" }
+  databases:
+        {  "_id" : "admin",  "partitioned" : false,  "primary" : "config" }
+        {  "_id" : "testdb",  "partitioned" : true,  "primary" : "shard0000" }  表示主shard是shard0000
+                testdb.students
+                        shard key: { "age" : 1 }
+                        chunks:
+                                shard0001       1
+                                shard0000       2
+                        { "age" : { "$minKey" : 1 } } -->> { "age" : 1 } on : shard0001 Timestamp(2, 0) 
+                        { "age" : 1 } -->> { "age" : 119 } on : shard0000 Timestamp(2, 2) 
+                        { "age" : 119 } -->> { "age" : { "$maxKey" : 1 } } on : shard0000 Timestamp(2, 3) 
+shard的常用命令如下       
+      > sh.help() 
+        sh.addShard( host )                       server:port OR setname/server:port       添加shard节点
+        sh.enableSharding(dbname)                 enables sharding on the database dbname   在指定数据库上启用shard
+        sh.shardCollection(fullName,key,unique)   shards the collection                     对指定的数据库，指定的表，指定的索引key做shard
+        sh.splitFind(fullName,find)               splits the chunk that find is in at the median
+        sh.splitAt(fullName,middle)               splits the chunk that middle is in at middle
+        sh.moveChunk(fullName,find,to)            move the chunk where 'find' is to 'to' (name of shard)
+        sh.setBalancerState( <bool on or not> )   turns the balancer on or off true=on, false=off
+        sh.getBalancerState()                     return true if enabled
+        sh.isBalancerRunning()                    return true if the balancer has work in progress on any mongos
+        sh.addShardTag(shard,tag)                 adds the tag to the shard
+        sh.removeShardTag(shard,tag)              removes the tag from the shard
+        sh.addTagRange(fullName,min,max,tag)      tags the specified range of the given collection
+        sh.status()                               prints a general overview of the cluster
+
+MongoDB数据库角色
+内建的角色 
+数据库用户角色：read、readWrite; 
+数据库管理角色：dbAdmin、dbOwner、userAdmin； 
+集群管理角色：clusterAdmin、clusterManager、clusterMonitor、hostManager； 
+备份恢复角色：backup、restore； 
+所有数据库角色：readAnyDatabase、readWriteAnyDatabase、userAdminAnyDatabase、dbAdminAnyDatabase 
+超级用户角色：root // 这里还有几个角色间接或直接提供了系统超级用户的访问（dbOwner 、userAdmin、userAdminAnyDatabase） 
+内部角色：__system
+ 
+角色说明： 
+Read：允许用户读取指定数据库 
+readWrite：允许用户读写指定数据库 
+dbAdmin：允许用户在指定数据库中执行管理函数，如索引创建、删除，查看统计或访问system.profile 
+userAdmin：允许用户向system.users集合写入，可以找指定数据库里创建、删除和管理用户 
+clusterAdmin：只在admin数据库中可用，赋予用户所有分片和复制集相关函数的管理权限。 
+readAnyDatabase：只在admin数据库中可用，赋予用户所有数据库的读权限 
+readWriteAnyDatabase：只在admin数据库中可用，赋予用户所有数据库的读写权限 
+userAdminAnyDatabase：只在admin数据库中可用，赋予用户所有数据库的userAdmin权限 
+dbAdminAnyDatabase：只在admin数据库中可用，赋予用户所有数据库的dbAdmin权限。 
+root：只在admin数据库中可用。超级账号，超级权限
+
+补充资料：给mongodb授权和加密
+先对admin数据库进行管理,必须要确保mongodb服务启动时是加了--auth选项，修改配置文件或者命令行选项都可以
+[root@qbs docker]# mongo  --host 10.10.214.10 --port 27017
+MongoDB shell version: 2.6.12
+connecting to: 10.10.214.10:27017/test
+> use admin 切换到admin数据库
+switched to db admin
+> db.createUser({user:"root",pwd:"w!kwLs8NAzXddJ4p2r",roles:[{role: "__system", db: "admin"}]})    角色这里必须写__system才能拥有所有权限，即使userAdminAnyDatabase都不行
+> db.auth("root","w!kwLs8NAzXddJ4p2r")  验证root权限,出现1表示验证成功
+1
+在root权限成功的条件下，对每个数据库进行授权
+[root@qbs docker]# mongo --host 10.10.214.10 --port 27017
+MongoDB shell version: 2.6.12
+connecting to: 10.10.214.10:27017/test
+> use admin 切换到admin数据库
+switched to db admin
+> db.auth("root","w!kwLs8NAzXddJ4p2r")  验证root权限,出现1表示验证成功，必须要先验证root权限成功后才可以进行后续的动作
+1
+> use xiaoenai_users  创建你需要的数据库
+switched to db xiaoenai_users
+> db.createUser({user:"hunter",pwd:"d3c3qsX7vNPXyuystq7wbM",roles:["readWrite"]})   对xiaoenai_users数据库进行授权
+Successfully added user: { "user" : "hunter", "roles" : [ "readWrite" ] }
+> db.auth("hunter","d3c3qsX7vNPXyuystq7wbM")  验证授权，如果出现1表示授权成功
+1
+> db.test.insert({name:'chenhao'})   测试创建一张表
+WriteResult({ "nInserted" : 1 })
+> db.test.find()  显示内容
+{ "_id" : ObjectId("5a41bfe99809c3f33fdd8b69"), "name" : "chenhao" }
+> exit
+bye
+
+访问测试：
+1）如果没有指定用户和密码无法查看数据的内容
+[root@qbs docker]# mongo --host 10.10.214.10 
+MongoDB shell version: 2.6.12
+connecting to: 10.10.214.10:27017/test
+> use xiaoenai_users
+switched to db xiaoenai_users
+> show collections
+2017-12-26T11:33:22.351+0800 error: {
+	"$err" : "not authorized for query on xiaoenai_users.system.namespaces",
+	"code" : 13
+} at src/mongo/shell/query.js:131
+
+2）如果使用指定的用户和密码即可登陆指定的数据库
+[root@qbs docker]# mongo 10.10.214.10:27017/xiaoenai_users -u hunter -p d3c3qsX7vNPXyuystq7wbM  
+MongoDB shell version: 2.6.12
+connecting to: 10.10.214.10:27017/xiaoenai_users
+> show collections
+system.indexes
+test
+> db.test.find()
+{ "_id" : ObjectId("5a41bfe99809c3f33fdd8b69"), "name" : "chenhao" }
+
+案例:mongodb备份,接着上面的授权案例进行
+]# mongodump -h  127.0.0.1 -d xiaoenai_users -u hunter -p d3c3qsX7vNPXyuystq7wbM -o /data/bakcup/ 
+]# ll /data/bakcup/
+总用量 0
+drwxr-xr-x. 2 root root 73 4月  12 16:27 xiaoenai_users
+[root@localhost ~]# ll /data/bakcup/xiaoenai_users/
+总用量 12
+-rw-r--r--. 1 root root  74 4月  12 16:27 system.indexes.bson
+-rw-r--r--. 1 root root  40 4月  12 16:27 test.bson
+-rw-r--r--. 1 root root 101 4月  12 16:27 test.metadata.json
+
+删除xiaoenai_users数据库里面的test表,不能删除xiaoenai_users数据库，因为账号是跟着数据库走的，删除数据库后就无法恢复了
+应该也可以删除库，只是需要重新授权,但是没有试过
+]# mongo 127.0.0.1:27017/xiaoenai_users -u hunter -p  d3c3qsX7vNPXyuystq7wbM
+MongoDB shell version: 2.6.12
+connecting to: 127.0.0.1:27017/xiaoenai_users
+> show collections
+system.indexes
+test
+> db.test.find()
+{ "_id" : ObjectId("5acf2618056f4269819ec10a"), "name" : "chenhao" }
+> db.test.drop()
+true
+> show collections
+system.indexes
+
+恢复操作
+]# mongorestore  -h 127.0.0.1 -u hunter -p  d3c3qsX7vNPXyuystq7wbM -d xiaoenai_users  /data/bakcup/xiaoenai_users/
+]# mongo 127.0.0.1:27017/xiaoenai_users -u hunter -p  d3c3qsX7vNPXyuystq7wbM  确认数据是否恢复
+MongoDB shell version: 2.6.12
+connecting to: 127.0.0.1:27017/xiaoenai_users
+> show collections
+system.indexes
+test
+> db.test.find()
+{ "_id" : ObjectId("5acf17a5c03689fc194dc2db"), "name" : "chenhao" }
