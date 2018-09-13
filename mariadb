@@ -2470,6 +2470,8 @@ mysql中间件有Atlas，cobar，TDDL，mycat，heisenberg,Oceanus,vitess,OnePro
 atlas缺点：
   不能实现分布式分表，所有的子表必须在同一台DB的同一个database里且所有的子表必须事先建好，Atlas没有自动建表的功能。
 
+目前中移物联网在江苏地区使用的是mycat
+
 mysql-proxy是mysql官方提供的中间件，大概如下：
 		epel源：yum -y install mysql-proxy
 		使用官方二进制格式文件中的rw-splitting.lua脚本进行读写分离
