@@ -1,5 +1,4 @@
 mysql的集群可以使用pxc，即Percona XtraDB Cluster
-
 mysql 创建database时最好能明确指定字符集，防止字符混乱的情况发生
 CREATE database testdb DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci
 线上典型建表语句
