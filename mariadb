@@ -1744,7 +1744,7 @@ Rows_examined表示扫描过的行
                  t: query time  查询时间
   -t NUM       just show the top n queries 返回前面多少条的数据
   -g PATTERN   grep: only consider stmts that include this string   后边可以写一个正则匹配模式，大小写不敏感的
-
+在查看慢查询日志前，最好先对慢查询日志备份，然后对备份文件进行查看，因为直接查看生产线上的慢查询日志可能会对线上数据库有影响
 接下来是mysql重点部分
 39-2 
 备份和恢复
