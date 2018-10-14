@@ -30,7 +30,8 @@ SELECT concat(round(sum(DATA_LENGTH/1024/1024),2),’MB’) as data FROM TABLES 
 4、查看指定数据库的某个表的大小
 比如查看数据库home中 members 表的大小
 SELECT concat(round(sum(DATA_LENGTH/1024/1024),2),’MB’) as data FROM TABLES WHERE table_schema=’home’ AND table_name=’members';
-
+5 查看数据库里面表的行数
+select table_name,table_rows from tables where TABLE_SCHEMA = '数据库的名称' order by table_rows desc;  
 面试题：
 结构化查询处理过程是:首先翻译器翻译查询请求生成查询表达式，然后由优化器优化查询表达式，得到优化过的查询计划，最后由执行器选择最优的查询计划执行，得到查询结果。
 查询处理的主要操作包括选择操作、连接操作、投影操作、聚合函数、排序等。
