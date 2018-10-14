@@ -17,8 +17,8 @@ export PATH=${JAVA_HOME}/bin:$PATH
 source /etc/profile.d/java.sh
 java -version
 1.只实现分库分表
-]# https://github.com/MyCATApache/Mycat-download 从该地址下载mycat的各个版本
-]# wget http://dl.mycat.io/1.6-RELEASE/Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz
+https://github.com/MyCATApache/Mycat-download 从该地址下载mycat的各个版本
+wget http://dl.mycat.io/1.6-RELEASE/Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz
 192.168.112.130安装mycat，192.168.112.131-132作为mysql后端节点，用做分库分表，/etc/my.cnf里面binlog_format最好设置为row
 tar -zxvf Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz -C /usr/local
 cd /usr/local/mycat
