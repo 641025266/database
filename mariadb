@@ -18,6 +18,32 @@ CREATE TABLE `income_record` (
   KEY `uid` (`uid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+日常sql
+mysql> select * from table1;
++----+-------+
+| ID | name  |
++----+-------+
+|  1 | chen  |
+|  2 | hao   |
+|  3 | chen  |
+|  4 | chen1 |
++----+-------+
+4 rows in set
+如下两条sql是一样的，as可加可不加
+mysql> select  count(*) a  from table1 a  where a.name='chen';
++---+
+| a |
++---+
+| 2 |
++---+
+1 row in set
+mysql> select  count(*) as a  from table1 as a  where a.name='chen';
++---+
+| a |
++---+
+| 2 |
++---+
+1 row in set
 
 用sql命令查看数据库大小，步骤如下：
 1、进入 information_schema 数据库（存放了其他的数据库的信息）
