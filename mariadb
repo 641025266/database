@@ -45,6 +45,63 @@ mysql> select  count(*) as a  from table1 as a  where a.name='chen';
 +---+
 1 row in set
 
+跨库查询，实际就是在表前面加上数据名就可以了，前提是两个数据库要在同一个mysql中，实际线上案例会比这个复杂
+test1数据库创建teachers表，在test2数据库创建students表，两表通过tid关联
+mysql> select * from test1.teachers;
++-----+----------+
+| tid | name     |
++-----+----------+
+|   1 | teacher1 |
+|   2 | teacher2 |
+|   3 | teacher3 |
++-----+----------+
+3 rows in set
+mysql> select * from test2.students;
++-----+-----+-----------+
+| tid | sid | name      |
++-----+-----+-----------+
+|   1 |  10 | student10 |
+|   2 |  11 | student11 |
+|   3 |  12 | student12 |
+|   4 |  14 | student14 |
+|   3 |  15 | student15 |
+|   3 |  16 | student16 |
+|   2 |  17 | student17 |
++-----+-----+-----------+
+7 rows in set
+mysql> select a.name,b.tid,b.name from test1.teachers as a,test2.students as b where a.tid=b.tid;
++----------+-----+-----------+
+| name     | tid | name      |
++----------+-----+-----------+
+| teacher1 |   1 | student10 |
+| teacher2 |   2 | student11 |
+| teacher3 |   3 | student12 |
+| teacher3 |   3 | student15 |
+| teacher3 |   3 | student16 |
+| teacher2 |   2 | student17 |
++----------+-----+-----------+
+6 rows in set
+
+统计出每个老师名下有几个学生，而且老师要以名称的方式出现，不能以tid方式出现，这是典型的跨库+跨表查询
+一旦使用了group by前面一定要有计算，否则就是错误
+mysql> select a.name,count(b.name) from test1.teachers as a,test2.students as b where a.tid=b.tid group by a.tid;
++----------+---------------+
+| name     | count(b.name) |
++----------+---------------+
+| teacher1 |             1 |
+| teacher2 |             2 |
+| teacher3 |             3 |
++----------+---------------+
+3 rows in set
+mysql> select a.name,count(b.name) from test1.teachers as a,test2.students as b where a.tid=b.tid group by a.tid having a.tid=2;
++----------+---------------+
+| name     | count(b.name) |
++----------+---------------+
+| teacher2 |             2 |
++----------+---------------+
+1 row in set
+
+
 用sql命令查看数据库大小，步骤如下：
 1、进入 information_schema 数据库（存放了其他的数据库的信息）
 use information_schema;
